@@ -69,6 +69,7 @@ export const receiveWebhook = async (
 
     if (phone && message) {
       const lowerMessage = message.toLowerCase();
+
       const isLead = leadKeywords.some((kw) =>
         lowerMessage.includes(kw)
       );
@@ -86,22 +87,51 @@ export const receiveWebhook = async (
       ];
 
       const wantsAppointment = appointmentKeywords.some((keyword) =>
-        message.toLowerCase().includes(keyword)
+        lowerMessage.includes(keyword)
       );
 
       console.log("WANTS APPOINTMENT:", wantsAppointment);
 
+      // STEP 1 - Create Lead
       if (isLead) {
-        console.log("CREATING LEAD...");
-        await leadService.createLead({
-          businessId,
-          name: "WhatsApp Prospect",
-          phone,
-          interest: message,
-          source: "WhatsApp",
-        });
-        console.log("LEAD CREATED");
+        try {
+          console.log("CREATING LEAD...");
+          await leadService.createLead({
+            businessId,
+            name: "WhatsApp Prospect",
+            phone,
+            interest: message,
+            source: "WhatsApp",
+          });
+          console.log("LEAD CREATED");
+        } catch (error) {
+          console.log("Lead may already exist:", error);
+        }
+      }
 
+      // STEP 2 - Appointment Intent
+      if (wantsAppointment) {
+        await sendWhatsAppMessage(
+          phone,
+          `Available consultation slots:
+
+1. 10:00 AM
+2. 11:00 AM
+3. 03:00 PM
+4. 04:00 PM
+
+Reply with your preferred slot.`
+        );
+        res.sendStatus(200);
+        return;
+      }
+
+      // STEP 3 - FAQ Reply
+      const answer = await faqEngine.findAnswer(businessId, message);
+
+      if (answer) {
+        await sendWhatsAppMessage(phone, answer);
+      } else if (isLead) {
         await sendWhatsAppMessage(
           phone,
           `Thank you for your interest.
@@ -111,17 +141,9 @@ A consultation specialist will contact you shortly.
 Would you like to schedule a free consultation call?`
         );
       } else {
-        const answer = await faqEngine.findAnswer(
-          businessId,
-          message
-        );
-
-        if (answer) {
-          await sendWhatsAppMessage(phone, answer);
-        } else {
-          await sendWhatsAppMessage(
-            phone,
-            `Thank you for contacting Advertoria.
+        await sendWhatsAppMessage(
+          phone,
+          `Thank you for contacting Advertoria.
 
 We provide:
 • Branding
@@ -131,8 +153,7 @@ We provide:
 • Digital Marketing
 
 Could you tell us more about your requirement?`
-          );
-        }
+        );
       }
     }
 
