@@ -75,6 +75,22 @@ export const receiveWebhook = async (
 
       console.log("IS LEAD:", isLead);
 
+      const appointmentKeywords = [
+        "call",
+        "consultation",
+        "meeting",
+        "appointment",
+        "schedule",
+        "discuss",
+        "talk",
+      ];
+
+      const wantsAppointment = appointmentKeywords.some((keyword) =>
+        message.toLowerCase().includes(keyword)
+      );
+
+      console.log("WANTS APPOINTMENT:", wantsAppointment);
+
       if (isLead) {
         console.log("CREATING LEAD...");
         await leadService.createLead({
