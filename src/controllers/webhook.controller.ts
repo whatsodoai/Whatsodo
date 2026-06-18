@@ -23,6 +23,16 @@ const leadKeywords = [
   "need service",
 ];
 
+const appointmentKeywords = [
+  "call",
+  "consultation",
+  "meeting",
+  "appointment",
+  "schedule",
+  "discuss",
+  "talk",
+];
+
 export const verifyWebhook = (
   req: Request,
   res: Response
@@ -40,7 +50,6 @@ export const verifyWebhook = (
     token === process.env.WHATSAPP_VERIFY_TOKEN
   ) {
     console.log("✅ Webhook Verified");
-
     res.status(200).send(challenge);
     return;
   }
@@ -53,9 +62,7 @@ export const receiveWebhook = async (
   res: Response
 ): Promise<void> => {
   try {
-    console.log(
-      JSON.stringify(req.body, null, 2)
-    );
+    console.log(JSON.stringify(req.body, null, 2));
 
     const phone =
       req.body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.from;
@@ -70,16 +77,12 @@ export const receiveWebhook = async (
 
     if (phone && message) {
       const lowerMessage = message.toLowerCase();
+
       const selectedSlotPattern =
-  /^(10:00 AM|11:00 AM|03:00 PM|04:00 PM)$/i;
+        /^(10:00 AM|11:00 AM|03:00 PM|04:00 PM)$/i;
+      const selectedSlot = message.trim().match(selectedSlotPattern);
 
-const selectedSlot =
-  message.trim().match(selectedSlotPattern);
-
-console.log(
-  "SELECTED SLOT:",
-  selectedSlot?.[0]
-);
+      console.log("SELECTED SLOT:", selectedSlot?.[0]);
 
       const isLead = leadKeywords.some((kw) =>
         lowerMessage.includes(kw)
@@ -87,32 +90,18 @@ console.log(
 
       console.log("IS LEAD:", isLead);
 
-      const appointmentKeywords = [
-        "call",
-        "consultation",
-        "meeting",
-        "appointment",
-        "schedule",
-        "discuss",
-        "talk",
-      ];
-
       const wantsAppointment = appointmentKeywords.some((keyword) =>
         lowerMessage.includes(keyword)
       );
 
       console.log("WANTS APPOINTMENT:", wantsAppointment);
-      if (selectedSlot) {
-        console.log(
-          "BOOKING APPOINTMENT..."
-        );
-      
-        const leads =
-          await leadService.getLeads(businessId);
 
-        const lead = leads.find(
-          (l: any) => l.phone === phone
-        );
+      // STEP 0 - Slot selected → book appointment
+      if (selectedSlot) {
+        console.log("BOOKING APPOINTMENT...");
+
+        const leads = await leadService.getLeads(businessId);
+        const lead = leads.find((l: any) => l.phone === phone);
 
         if (lead) {
           await createAppointment({
@@ -127,17 +116,17 @@ console.log(
             phone,
             `✅ Appointment Confirmed
 
-      Date: 20-Jun-2026
-      Time: ${selectedSlot[0]}
+Date: 20-Jun-2026
+Time: ${selectedSlot[0]}
 
-      Our team will contact you shortly.`
+Our team will contact you shortly.`
           );
 
           res.sendStatus(200);
           return;
         }
       }
-      
+
       // STEP 1 - Create Lead
       if (isLead) {
         try {
