@@ -82,7 +82,8 @@ export const receiveWebhook = async (
         /^(10:00 AM|11:00 AM|03:00 PM|04:00 PM)$/i;
       const selectedSlot = message.trim().match(selectedSlotPattern);
 
-      console.log("SELECTED SLOT:", selectedSlot?.[0]);
+      console.log("RAW MESSAGE:", message);
+      console.log("SELECTED SLOT:", selectedSlot);
 
       const isLead = leadKeywords.some((kw) =>
         lowerMessage.includes(kw)
@@ -100,27 +101,45 @@ export const receiveWebhook = async (
       if (selectedSlot) {
         console.log("BOOKING APPOINTMENT...");
 
+        console.log("FETCHING LEADS...");
         const leads = await leadService.getLeads(businessId);
-        const lead = leads.find((l: any) => l.phone === phone);
+        console.log("PHONE LOOKUP:", phone);
+        console.log("LEADS COUNT:", leads.length);
+        const normalizedPhone = phone.replace("+", "");
+        const lead = leads.find(
+          (l: any) => l.phone.replace("+", "") === normalizedPhone
+        );
+        console.log("FOUND LEAD:", lead);
 
         if (lead) {
-          await createAppointment({
-            businessId,
-            leadId: lead._id.toString(),
-            date: "2026-06-20",
-            time: selectedSlot[0],
-            notes: "WhatsApp Consultation",
-          });
+          try {
+            await createAppointment({
+              businessId,
+              leadId: lead._id.toString(),
+              date: "2026-06-20",
+              time: selectedSlot[0],
+              notes: "WhatsApp Consultation",
+            });
 
-          await sendWhatsAppMessage(
-            phone,
-            `✅ Appointment Confirmed
+            console.log("APPOINTMENT CREATED");
+
+            await sendWhatsAppMessage(
+              phone,
+              `✅ Appointment Confirmed
 
 Date: 20-Jun-2026
 Time: ${selectedSlot[0]}
 
 Our team will contact you shortly.`
-          );
+            );
+          } catch (error) {
+            console.log("APPOINTMENT ERROR:", error);
+
+            await sendWhatsAppMessage(
+              phone,
+              "Unable to book appointment. Please try again."
+            );
+          }
 
           res.sendStatus(200);
           return;
