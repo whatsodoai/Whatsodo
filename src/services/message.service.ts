@@ -6,6 +6,8 @@ export const saveMessage = async (
   direction: "incoming" | "outgoing",
   message: string
 ) => {
+  console.log("MESSAGE SAVED:", direction, message);
+
   return Message.create({
     businessId,
     phone,

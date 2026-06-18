@@ -78,135 +78,140 @@ export const receiveWebhook = async (
     console.log("PHONE:", phone);
     console.log("MESSAGE:", message);
 
+    if (!phone || !message) {
+      res.sendStatus(200);
+      return;
+    }
+
     const businessId = "6a3263dbad9dcef582076cd1";
 
-    if (phone && message) {
-      await saveMessage(businessId, phone, "incoming", message);
+    await saveMessage(businessId, phone, "incoming", message);
 
-      const lowerMessage = message.toLowerCase();
+    const lowerMessage = message.toLowerCase();
 
-      const selectedSlotPattern =
-        /^(10:00 AM|11:00 AM|03:00 PM|04:00 PM)$/i;
-      const selectedSlot = message.trim().match(selectedSlotPattern);
+    const selectedSlotPattern =
+      /^(10:00 AM|11:00 AM|03:00 PM|04:00 PM)$/i;
+    const selectedSlot = message.trim().match(selectedSlotPattern);
 
-      console.log("RAW MESSAGE:", message);
-      console.log("SELECTED SLOT:", selectedSlot);
+    console.log("RAW MESSAGE:", message);
+    console.log("SELECTED SLOT:", selectedSlot);
 
-      const isLead = leadKeywords.some((kw) =>
-        lowerMessage.includes(kw)
+    const isLead = leadKeywords.some((kw) =>
+      lowerMessage.includes(kw)
+    );
+
+    console.log("IS LEAD:", isLead);
+
+    const wantsAppointment = appointmentKeywords.some((keyword) =>
+      lowerMessage.includes(keyword)
+    );
+
+    console.log("WANTS APPOINTMENT:", wantsAppointment);
+
+    // STEP 0 - Slot selected → book appointment
+    if (selectedSlot) {
+      console.log("BOOKING APPOINTMENT...");
+
+      console.log("FETCHING LEADS...");
+      const leads = await leadService.getLeads(businessId);
+      console.log("PHONE LOOKUP:", phone);
+      console.log("LEADS COUNT:", leads.length);
+      const normalizedPhone = phone.replace("+", "");
+      const lead = leads.find(
+        (l: any) => l.phone.replace("+", "") === normalizedPhone
       );
+      console.log("FOUND LEAD:", lead);
 
-      console.log("IS LEAD:", isLead);
+      if (lead) {
+        try {
+          await createAppointment({
+            businessId,
+            leadId: lead._id.toString(),
+            date: "2026-06-20",
+            time: selectedSlot[0],
+            notes: "WhatsApp Consultation",
+          });
 
-      const wantsAppointment = appointmentKeywords.some((keyword) =>
-        lowerMessage.includes(keyword)
-      );
+          console.log("APPOINTMENT CREATED");
+          console.log("SENDING CONFIRMATION...");
 
-      console.log("WANTS APPOINTMENT:", wantsAppointment);
-
-      // STEP 0 - Slot selected → book appointment
-      if (selectedSlot) {
-        console.log("BOOKING APPOINTMENT...");
-
-        console.log("FETCHING LEADS...");
-        const leads = await leadService.getLeads(businessId);
-        console.log("PHONE LOOKUP:", phone);
-        console.log("LEADS COUNT:", leads.length);
-        const normalizedPhone = phone.replace("+", "");
-        const lead = leads.find(
-          (l: any) => l.phone.replace("+", "") === normalizedPhone
-        );
-        console.log("FOUND LEAD:", lead);
-
-        if (lead) {
-          try {
-            await createAppointment({
-              businessId,
-              leadId: lead._id.toString(),
-              date: "2026-06-20",
-              time: selectedSlot[0],
-              notes: "WhatsApp Consultation",
-            });
-
-            console.log("APPOINTMENT CREATED");
-
-            console.log("SENDING CONFIRMATION...");
-
-            const confirmationMsg = `✅ Appointment Confirmed
+          const confirmationMsg = `✅ Appointment Confirmed
 
 Date: 20-Jun-2026
 Time: ${selectedSlot[0]}
 
 Our team will contact you shortly.`;
 
-            await saveMessage(businessId, phone, "outgoing", confirmationMsg);
+          console.log("OUTGOING:", confirmationMsg);
+          await saveMessage(businessId, phone, "outgoing", confirmationMsg);
+          const result = await sendWhatsAppMessage(phone, confirmationMsg);
+          console.log("MESSAGE SENT");
 
-            const result = await sendWhatsAppMessage(
-              phone,
-              confirmationMsg
-            );
+          console.log("WHATSAPP RESPONSE:", result);
+          console.log("CONFIRMATION SENT");
+        } catch (error: any) {
+          console.log("=================================");
+          console.log("APPOINTMENT ERROR");
+          console.log("MESSAGE:", error?.message);
+          console.log("FULL:", error);
+          console.log("=================================");
 
-            console.log("WHATSAPP RESPONSE:", result);
-            console.log("CONFIRMATION SENT");
-          } catch (error) {
-            console.log("APPOINTMENT ERROR:", error);
-
-            await saveMessage(businessId, phone, "outgoing", "Unable to book appointment. Please try again.");
-            await sendWhatsAppMessage(
-              phone,
-              "Unable to book appointment. Please try again."
-            );
-          }
-
-          res.sendStatus(200);
-          return;
+          const errorReply = "Unable to book appointment. Please try again.";
+          console.log("OUTGOING:", errorReply);
+          await saveMessage(businessId, phone, "outgoing", errorReply);
+          await sendWhatsAppMessage(phone, errorReply);
+          console.log("MESSAGE SENT");
         }
+
+        res.sendStatus(200);
+        return;
       }
+    }
 
-      // STEP 1 - Create Lead
-      if (isLead) {
-        try {
-          console.log("CREATING LEAD...");
+    // STEP 1 - Create Lead
+    if (isLead) {
+      try {
+        console.log("CREATING LEAD...");
 
-          const existingLead = await findLeadByPhone(businessId, phone);
+        const existingLead = await findLeadByPhone(businessId, phone);
 
-          console.log("EXISTING LEAD:", existingLead?._id);
+        console.log("EXISTING LEAD:", existingLead?._id);
 
-          if (!existingLead) {
-            await leadService.createLead({
-              businessId,
-              name: "WhatsApp Prospect",
-              phone,
-              interest: message,
-              source: "WhatsApp",
-            });
+        if (!existingLead) {
+          await leadService.createLead({
+            businessId,
+            name: "WhatsApp Prospect",
+            phone,
+            interest: message,
+            source: "WhatsApp",
+          });
 
-            console.log("NEW LEAD CREATED");
-          } else {
-            await updateLeadInterest(
-              existingLead._id.toString(),
-              message
-            );
+          console.log("NEW LEAD CREATED");
+        } else {
+          await updateLeadInterest(
+            existingLead._id.toString(),
+            message
+          );
 
-            console.log("LEAD UPDATED");
-          }
-        } catch (error) {
-          console.log("Lead may already exist:", error);
+          console.log("LEAD UPDATED");
         }
+      } catch (error) {
+        console.log("Lead may already exist:", error);
       }
+    }
 
-      // STEP 2 - Appointment Intent
-      console.log("REACHED APPOINTMENT CHECK");
-      console.log("MESSAGE:", message);
-      console.log("WANTS APPOINTMENT:", wantsAppointment);
+    // STEP 2 - Appointment Intent
+    console.log("REACHED APPOINTMENT CHECK");
+    console.log("MESSAGE:", message);
+    console.log("WANTS APPOINTMENT:", wantsAppointment);
 
-      if (wantsAppointment) {
-        console.log("ENTERED APPOINTMENT BLOCK");
+    if (wantsAppointment) {
+      console.log("ENTERED APPOINTMENT BLOCK");
 
-        try {
-          console.log("BEFORE SLOT SEND");
+      try {
+        console.log("BEFORE SLOT SEND");
 
-          const slotMsg = `Available consultation slots:
+        const slotMsg = `Available consultation slots:
 
 1. 10:00 AM
 2. 11:00 AM
@@ -215,42 +220,44 @@ Our team will contact you shortly.`;
 
 Reply with your preferred slot.`;
 
-          await saveMessage(businessId, phone, "outgoing", slotMsg);
+        console.log("OUTGOING:", slotMsg);
+        await saveMessage(businessId, phone, "outgoing", slotMsg);
+        const result = await sendWhatsAppMessage(phone, slotMsg);
+        console.log("MESSAGE SENT");
 
-          const result = await sendWhatsAppMessage(
-            phone,
-            slotMsg
-          );
-
-          console.log("WHATSAPP RESULT:", result);
-          console.log("SLOT MESSAGE SENT");
-        } catch (error: any) {
-          console.log(
-            "SLOT SEND ERROR:",
-            error?.response?.data || error
-          );
-        }
-
-        res.sendStatus(200);
-        return;
+        console.log("WHATSAPP RESULT:", result);
+        console.log("SLOT MESSAGE SENT");
+      } catch (error: any) {
+        console.log(
+          "SLOT SEND ERROR:",
+          error?.response?.data || error
+        );
       }
 
-      // STEP 3 - FAQ Reply
-      const answer = await faqEngine.findAnswer(businessId, message);
+      res.sendStatus(200);
+      return;
+    }
 
-      if (answer) {
-        await saveMessage(businessId, phone, "outgoing", answer);
-        await sendWhatsAppMessage(phone, answer);
-      } else if (isLead) {
-        const leadReply = `Thank you for your interest.
+    // STEP 3 - FAQ Reply
+    const answer = await faqEngine.findAnswer(businessId, message);
+
+    if (answer) {
+      console.log("OUTGOING:", answer);
+      await saveMessage(businessId, phone, "outgoing", answer);
+      await sendWhatsAppMessage(phone, answer);
+      console.log("MESSAGE SENT");
+    } else if (isLead) {
+      const leadReply = `Thank you for your interest.
 
 A consultation specialist will contact you shortly.
 
 Would you like to schedule a free consultation call?`;
-        await saveMessage(businessId, phone, "outgoing", leadReply);
-        await sendWhatsAppMessage(phone, leadReply);
-      } else {
-        const defaultReply = `Thank you for contacting Advertoria.
+      console.log("OUTGOING:", leadReply);
+      await saveMessage(businessId, phone, "outgoing", leadReply);
+      await sendWhatsAppMessage(phone, leadReply);
+      console.log("MESSAGE SENT");
+    } else {
+      const defaultReply = `Thank you for contacting Advertoria.
 
 We provide:
 • Branding
@@ -260,9 +267,10 @@ We provide:
 • Digital Marketing
 
 Could you tell us more about your requirement?`;
-        await saveMessage(businessId, phone, "outgoing", defaultReply);
-        await sendWhatsAppMessage(phone, defaultReply);
-      }
+      console.log("OUTGOING:", defaultReply);
+      await saveMessage(businessId, phone, "outgoing", defaultReply);
+      await sendWhatsAppMessage(phone, defaultReply);
+      console.log("MESSAGE SENT");
     }
 
     res.sendStatus(200);

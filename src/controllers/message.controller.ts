@@ -5,13 +5,18 @@ export const conversation = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const businessId = req.params.businessId as string;
-  const phone = req.params.phone as string;
+  try {
+    const { businessId, phone } = req.params;
 
-  const messages = await getConversation(businessId, phone);
+    const messages = await getConversation(businessId, phone);
 
-  res.json({
-    success: true,
-    data: messages,
-  });
+    res.json({
+      success: true,
+      data: messages,
+    });
+  } catch {
+    res.status(500).json({
+      success: false,
+    });
+  }
 };
