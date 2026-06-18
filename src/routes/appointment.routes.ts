@@ -1,7 +1,8 @@
 import { Router } from "express";
 import {
-create,
-getAll,
+  create,
+  getAll,
+  clearAppointments,
 } from "../controllers/appointment.controller";
 
 import { protect } from "../middleware/auth.middleware";
@@ -15,9 +16,15 @@ create
 );
 
 router.get(
-"/:businessId",
-protect,
-getAll
+  "/:businessId",
+  protect,
+  getAll
+);
+
+router.delete(
+  "/clear",
+  protect,
+  clearAppointments
 );
 
 export default router;

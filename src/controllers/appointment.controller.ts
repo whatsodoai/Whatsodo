@@ -3,6 +3,7 @@ import {
   createAppointment,
   getAppointments,
 } from "../services/appointment.service";
+import Appointment from "../models/Appointment";
 
 export const create = async (
   req: Request,
@@ -24,6 +25,18 @@ export const create = async (
           : "Failed to create appointment",
     });
   }
+};
+
+export const clearAppointments = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  await Appointment.deleteMany({});
+
+  res.json({
+    success: true,
+    message: "All appointments cleared",
+  });
 };
 
 export const getAll = async (
