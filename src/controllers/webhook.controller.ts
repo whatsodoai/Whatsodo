@@ -69,11 +69,18 @@ export const receiveWebhook = async (
   try {
     console.log(JSON.stringify(req.body, null, 2));
 
-    const phone =
-      req.body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.from;
+    const value =
+      req.body?.entry?.[0]?.changes?.[0]?.value;
 
-    const message =
-      req.body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.text?.body;
+    if (!value?.messages?.length) {
+      console.log("STATUS EVENT - IGNORED");
+      res.sendStatus(200);
+      return;
+    }
+
+    const phone = value.messages[0].from;
+
+    const message = value.messages[0].text?.body;
 
     console.log("PHONE:", phone);
     console.log("MESSAGE:", message);
