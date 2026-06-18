@@ -7,6 +7,7 @@ import {
   updateLeadInterest,
 } from "../services/lead.service";
 import { createAppointment } from "../services/appointment.service";
+import { saveMessage } from "../services/message.service";
 
 const faqEngine = new FAQEngineService();
 const leadService = new LeadService();
@@ -80,6 +81,8 @@ export const receiveWebhook = async (
     const businessId = "6a3263dbad9dcef582076cd1";
 
     if (phone && message) {
+      await saveMessage(businessId, phone, "incoming", message);
+
       const lowerMessage = message.toLowerCase();
 
       const selectedSlotPattern =
@@ -129,14 +132,18 @@ export const receiveWebhook = async (
 
             console.log("SENDING CONFIRMATION...");
 
-            const result = await sendWhatsAppMessage(
-              phone,
-              `✅ Appointment Confirmed
+            const confirmationMsg = `✅ Appointment Confirmed
 
 Date: 20-Jun-2026
 Time: ${selectedSlot[0]}
 
-Our team will contact you shortly.`
+Our team will contact you shortly.`;
+
+            await saveMessage(businessId, phone, "outgoing", confirmationMsg);
+
+            const result = await sendWhatsAppMessage(
+              phone,
+              confirmationMsg
             );
 
             console.log("WHATSAPP RESPONSE:", result);
@@ -144,6 +151,7 @@ Our team will contact you shortly.`
           } catch (error) {
             console.log("APPOINTMENT ERROR:", error);
 
+            await saveMessage(businessId, phone, "outgoing", "Unable to book appointment. Please try again.");
             await sendWhatsAppMessage(
               phone,
               "Unable to book appointment. Please try again."
@@ -161,6 +169,8 @@ Our team will contact you shortly.`
           console.log("CREATING LEAD...");
 
           const existingLead = await findLeadByPhone(businessId, phone);
+
+          console.log("EXISTING LEAD:", existingLead?._id);
 
           if (!existingLead) {
             await leadService.createLead({
@@ -196,16 +206,20 @@ Our team will contact you shortly.`
         try {
           console.log("BEFORE SLOT SEND");
 
-          const result = await sendWhatsAppMessage(
-            phone,
-            `Available consultation slots:
+          const slotMsg = `Available consultation slots:
 
 1. 10:00 AM
 2. 11:00 AM
 3. 03:00 PM
 4. 04:00 PM
 
-Reply with your preferred slot.`
+Reply with your preferred slot.`;
+
+          await saveMessage(businessId, phone, "outgoing", slotMsg);
+
+          const result = await sendWhatsAppMessage(
+            phone,
+            slotMsg
           );
 
           console.log("WHATSAPP RESULT:", result);
@@ -225,20 +239,18 @@ Reply with your preferred slot.`
       const answer = await faqEngine.findAnswer(businessId, message);
 
       if (answer) {
+        await saveMessage(businessId, phone, "outgoing", answer);
         await sendWhatsAppMessage(phone, answer);
       } else if (isLead) {
-        await sendWhatsAppMessage(
-          phone,
-          `Thank you for your interest.
+        const leadReply = `Thank you for your interest.
 
 A consultation specialist will contact you shortly.
 
-Would you like to schedule a free consultation call?`
-        );
+Would you like to schedule a free consultation call?`;
+        await saveMessage(businessId, phone, "outgoing", leadReply);
+        await sendWhatsAppMessage(phone, leadReply);
       } else {
-        await sendWhatsAppMessage(
-          phone,
-          `Thank you for contacting Advertoria.
+        const defaultReply = `Thank you for contacting Advertoria.
 
 We provide:
 • Branding
@@ -247,8 +259,9 @@ We provide:
 • UI/UX Design
 • Digital Marketing
 
-Could you tell us more about your requirement?`
-        );
+Could you tell us more about your requirement?`;
+        await saveMessage(businessId, phone, "outgoing", defaultReply);
+        await sendWhatsAppMessage(phone, defaultReply);
       }
     }
 

@@ -3,6 +3,7 @@ import {
   create,
   getAll,
   updateStatus,
+  cleanupDuplicates,
 } from "../controllers/lead.controller";
 
 import { protect } from "../middleware/auth.middleware";
@@ -25,6 +26,11 @@ router.patch(
   "/:leadId/status",
   protect,
   updateStatus
+);
+
+router.delete(
+  "/cleanup/duplicates",
+  cleanupDuplicates
 );
 
 export default router;

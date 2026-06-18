@@ -1,0 +1,16 @@
+import { Request, Response } from "express";
+import { getConversation } from "../services/message.service";
+
+export const conversation = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  const { businessId, phone } = req.params;
+
+  const messages = await getConversation(businessId, phone);
+
+  res.json({
+    success: true,
+    data: messages,
+  });
+};

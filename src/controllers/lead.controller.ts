@@ -84,3 +84,29 @@ export const updateStatus = async (
     });
   }
 };
+
+export const cleanupDuplicates = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  const leads = await Lead.find().sort({
+    updatedAt: -1,
+  });
+
+  const seen = new Set();
+
+  for (const lead of leads) {
+    const key = `${lead.businessId}_${lead.phone}`;
+
+    if (seen.has(key)) {
+      await Lead.findByIdAndDelete(lead._id);
+    } else {
+      seen.add(key);
+    }
+  }
+
+  res.json({
+    success: true,
+    message: "Duplicate leads removed",
+  });
+};
