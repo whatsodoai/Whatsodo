@@ -123,7 +123,9 @@ export const receiveWebhook = async (
 
             console.log("APPOINTMENT CREATED");
 
-            await sendWhatsAppMessage(
+            console.log("SENDING CONFIRMATION...");
+
+            const result = await sendWhatsAppMessage(
               phone,
               `✅ Appointment Confirmed
 
@@ -132,6 +134,9 @@ Time: ${selectedSlot[0]}
 
 Our team will contact you shortly.`
             );
+
+            console.log("WHATSAPP RESPONSE:", result);
+            console.log("CONFIRMATION SENT");
           } catch (error) {
             console.log("APPOINTMENT ERROR:", error);
 
