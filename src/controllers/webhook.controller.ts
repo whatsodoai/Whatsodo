@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { sendWhatsAppMessage } from "../services/whatsapp.service";
 
 export const verifyWebhook = (
   req: Request,
@@ -33,6 +34,22 @@ export const receiveWebhook = async (
     console.log(
       JSON.stringify(req.body, null, 2)
     );
+
+    const phone =
+      req.body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.from;
+
+    const message =
+      req.body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.text?.body;
+
+    console.log("PHONE:", phone);
+    console.log("MESSAGE:", message);
+
+    if (phone && message) {
+      await sendWhatsAppMessage(
+        phone,
+        `Hello ${phone}, I received your message: "${message}"`
+      );
+    }
 
     res.sendStatus(200);
   } catch (error) {
