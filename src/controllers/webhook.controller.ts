@@ -169,7 +169,13 @@ Our team will contact you shortly.`
       }
 
       // STEP 2 - Appointment Intent
+      console.log("REACHED APPOINTMENT CHECK");
+      console.log("MESSAGE:", message);
+      console.log("WANTS APPOINTMENT:", wantsAppointment);
+
       if (wantsAppointment) {
+        console.log("ENTERED APPOINTMENT BLOCK");
+
         await sendWhatsAppMessage(
           phone,
           `Available consultation slots:
@@ -181,6 +187,9 @@ Our team will contact you shortly.`
 
 Reply with your preferred slot.`
         );
+
+        console.log("SLOT MESSAGE SENT");
+
         res.sendStatus(200);
         return;
       }
