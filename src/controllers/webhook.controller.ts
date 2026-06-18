@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { sendWhatsAppMessage } from "../services/whatsapp.service";
 import { FAQEngineService } from "../services/faq-engine.service";
 import { LeadService } from "../services/lead.service";
+import { createAppointment } from "../services/appointment.service";
 
 const faqEngine = new FAQEngineService();
 const leadService = new LeadService();
@@ -69,6 +70,16 @@ export const receiveWebhook = async (
 
     if (phone && message) {
       const lowerMessage = message.toLowerCase();
+      const selectedSlotPattern =
+  /^(10:00 AM|11:00 AM|03:00 PM|04:00 PM)$/i;
+
+const selectedSlot =
+  message.trim().match(selectedSlotPattern);
+
+console.log(
+  "SELECTED SLOT:",
+  selectedSlot?.[0]
+);
 
       const isLead = leadKeywords.some((kw) =>
         lowerMessage.includes(kw)
@@ -91,7 +102,42 @@ export const receiveWebhook = async (
       );
 
       console.log("WANTS APPOINTMENT:", wantsAppointment);
+      if (selectedSlot) {
+        console.log(
+          "BOOKING APPOINTMENT..."
+        );
+      
+        const leads =
+          await leadService.getLeads(businessId);
 
+        const lead = leads.find(
+          (l: any) => l.phone === phone
+        );
+
+        if (lead) {
+          await createAppointment({
+            businessId,
+            leadId: lead._id.toString(),
+            date: "2026-06-20",
+            time: selectedSlot[0],
+            notes: "WhatsApp Consultation",
+          });
+
+          await sendWhatsAppMessage(
+            phone,
+            `✅ Appointment Confirmed
+
+      Date: 20-Jun-2026
+      Time: ${selectedSlot[0]}
+
+      Our team will contact you shortly.`
+          );
+
+          res.sendStatus(200);
+          return;
+        }
+      }
+      
       // STEP 1 - Create Lead
       if (isLead) {
         try {
