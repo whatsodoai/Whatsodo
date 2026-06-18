@@ -1,8 +1,26 @@
 import { Request, Response } from "express";
 import { sendWhatsAppMessage } from "../services/whatsapp.service";
 import { FAQEngineService } from "../services/faq-engine.service";
+import { LeadService } from "../services/lead.service";
 
 const faqEngine = new FAQEngineService();
+const leadService = new LeadService();
+
+const leadKeywords = [
+  "website",
+  "logo",
+  "branding",
+  "digital marketing",
+  "seo",
+  "google ads",
+  "meta ads",
+  "price",
+  "cost",
+  "quotation",
+  "consultation",
+  "interested",
+  "need service",
+];
 
 export const verifyWebhook = (
   req: Request,
@@ -50,17 +68,40 @@ export const receiveWebhook = async (
     const businessId = "6a3263dbad9dcef582076cd1";
 
     if (phone && message) {
-      const answer = await faqEngine.findAnswer(
-        businessId,
-        message
+      const lowerMessage = message.toLowerCase();
+      const isLead = leadKeywords.some((kw) =>
+        lowerMessage.includes(kw)
       );
 
-      if (answer) {
-        await sendWhatsAppMessage(phone, answer);
-      } else {
+      if (isLead) {
+        await leadService.createLead({
+          businessId,
+          name: "WhatsApp Prospect",
+          phone,
+          interest: message,
+          source: "WhatsApp",
+        });
+
         await sendWhatsAppMessage(
           phone,
-          `Thank you for contacting Advertoria.
+          `Thank you for your interest.
+
+A consultation specialist will contact you shortly.
+
+Would you like to schedule a free consultation call?`
+        );
+      } else {
+        const answer = await faqEngine.findAnswer(
+          businessId,
+          message
+        );
+
+        if (answer) {
+          await sendWhatsAppMessage(phone, answer);
+        } else {
+          await sendWhatsAppMessage(
+            phone,
+            `Thank you for contacting Advertoria.
 
 We provide:
 • Branding
@@ -70,7 +111,8 @@ We provide:
 • Digital Marketing
 
 Could you tell us more about your requirement?`
-        );
+          );
+        }
       }
     }
 

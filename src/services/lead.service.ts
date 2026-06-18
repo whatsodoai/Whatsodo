@@ -1,5 +1,15 @@
 import Lead from "../models/Lead";
 
+export class LeadService {
+  async createLead(data: any) {
+    return await Lead.create(data);
+  }
+
+  async getLeads(businessId: string) {
+    return await Lead.find({ businessId }).sort({ createdAt: -1 });
+  }
+}
+
 export const createLead = async (
 data: any
 ) => {
