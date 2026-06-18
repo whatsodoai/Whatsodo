@@ -176,9 +176,12 @@ Our team will contact you shortly.`
       if (wantsAppointment) {
         console.log("ENTERED APPOINTMENT BLOCK");
 
-        await sendWhatsAppMessage(
-          phone,
-          `Available consultation slots:
+        try {
+          console.log("BEFORE SLOT SEND");
+
+          const result = await sendWhatsAppMessage(
+            phone,
+            `Available consultation slots:
 
 1. 10:00 AM
 2. 11:00 AM
@@ -186,9 +189,16 @@ Our team will contact you shortly.`
 4. 04:00 PM
 
 Reply with your preferred slot.`
-        );
+          );
 
-        console.log("SLOT MESSAGE SENT");
+          console.log("WHATSAPP RESULT:", result);
+          console.log("SLOT MESSAGE SENT");
+        } catch (error: any) {
+          console.log(
+            "SLOT SEND ERROR:",
+            error?.response?.data || error
+          );
+        }
 
         res.sendStatus(200);
         return;
