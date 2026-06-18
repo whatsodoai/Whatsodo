@@ -73,7 +73,10 @@ export const receiveWebhook = async (
         lowerMessage.includes(kw)
       );
 
+      console.log("IS LEAD:", isLead);
+
       if (isLead) {
+        console.log("CREATING LEAD...");
         await leadService.createLead({
           businessId,
           name: "WhatsApp Prospect",
@@ -81,6 +84,7 @@ export const receiveWebhook = async (
           interest: message,
           source: "WhatsApp",
         });
+        console.log("LEAD CREATED");
 
         await sendWhatsAppMessage(
           phone,
