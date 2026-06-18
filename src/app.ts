@@ -12,6 +12,7 @@ import availabilityRoutes from "./routes/availability.routes";
 import slotRoutes from "./routes/slot.routes";
 import webhookRoutes from "./routes/webhook.routes";
 import testWhatsappRoutes from "./routes/test-whatsapp.routes";
+import dashboardRoutes from "./routes/dashboard.routes";
 
 const app = express();
 
@@ -28,6 +29,7 @@ app.use("/api/availability", availabilityRoutes);
 app.use("/api/slots", slotRoutes);
 app.use("/api/webhook", webhookRoutes);
 app.use("/api/test-whatsapp", testWhatsappRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 
 app.get("/test-whatsapp", async (_req, res) => {
   try {

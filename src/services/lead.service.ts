@@ -17,11 +17,35 @@ return await Lead.create(data);
 };
 
 export const getLeads = async (
-businessId: string
+  businessId: string
 ) => {
-return await Lead.find({
-businessId,
-}).sort({
-createdAt: -1,
-});
+  return await Lead.find({
+    businessId,
+  }).sort({
+    createdAt: -1,
+  });
+};
+
+export const findLeadByPhone = async (
+  businessId: string,
+  phone: string
+) => {
+  return Lead.findOne({
+    businessId,
+    phone,
+  });
+};
+
+export const updateLeadInterest = async (
+  leadId: string,
+  interest: string
+) => {
+  return Lead.findByIdAndUpdate(
+    leadId,
+    {
+      interest,
+      updatedAt: new Date(),
+    },
+    { new: true }
+  );
 };

@@ -1,7 +1,11 @@
 import { Request, Response } from "express";
 import { sendWhatsAppMessage } from "../services/whatsapp.service";
 import { FAQEngineService } from "../services/faq-engine.service";
-import { LeadService } from "../services/lead.service";
+import {
+  LeadService,
+  findLeadByPhone,
+  updateLeadInterest,
+} from "../services/lead.service";
 import { createAppointment } from "../services/appointment.service";
 
 const faqEngine = new FAQEngineService();
@@ -155,14 +159,27 @@ Our team will contact you shortly.`
       if (isLead) {
         try {
           console.log("CREATING LEAD...");
-          await leadService.createLead({
-            businessId,
-            name: "WhatsApp Prospect",
-            phone,
-            interest: message,
-            source: "WhatsApp",
-          });
-          console.log("LEAD CREATED");
+
+          const existingLead = await findLeadByPhone(businessId, phone);
+
+          if (!existingLead) {
+            await leadService.createLead({
+              businessId,
+              name: "WhatsApp Prospect",
+              phone,
+              interest: message,
+              source: "WhatsApp",
+            });
+
+            console.log("NEW LEAD CREATED");
+          } else {
+            await updateLeadInterest(
+              existingLead._id.toString(),
+              message
+            );
+
+            console.log("LEAD UPDATED");
+          }
         } catch (error) {
           console.log("Lead may already exist:", error);
         }
