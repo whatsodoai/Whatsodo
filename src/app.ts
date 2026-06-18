@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import { sendWhatsAppMessage } from "./services/whatsapp.service";
 import authRoutes from "./routes/auth.routes";
 import businessRoutes from "./routes/business.routes";
 import knowledgeBaseRoutes from "./routes/knowledge-base.routes";
@@ -27,6 +28,20 @@ app.use("/api/availability", availabilityRoutes);
 app.use("/api/slots", slotRoutes);
 app.use("/api/webhook", webhookRoutes);
 app.use("/api/test-whatsapp", testWhatsappRoutes);
+
+app.get("/test-whatsapp", async (_req, res) => {
+  try {
+    const result = await sendWhatsAppMessage(
+      "919994770192",
+      "Whatsodo test message"
+    );
+
+    res.json(result);
+  } catch (error: any) {
+    console.log(error?.response?.data || error);
+    res.status(500).json(error?.response?.data || error);
+  }
+});
 
 app.get("/", (_req, res) => {
   res.status(200).json({
