@@ -6,7 +6,8 @@ export const conversation = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { businessId, phone } = req.params;
+    const businessId = req.params.businessId as string;
+    const phone = req.params.phone as string;
 
     const messages = await getConversation(businessId, phone);
 
