@@ -1,5 +1,8 @@
 import { Request, Response } from "express";
 import { sendWhatsAppMessage } from "../services/whatsapp.service";
+import { FAQEngineService } from "../services/faq-engine.service";
+
+const faqEngine = new FAQEngineService();
 
 export const verifyWebhook = (
   req: Request,
@@ -44,11 +47,31 @@ export const receiveWebhook = async (
     console.log("PHONE:", phone);
     console.log("MESSAGE:", message);
 
+    const businessId = "6a3263dbad9dcef582076cd1";
+
     if (phone && message) {
-      await sendWhatsAppMessage(
-        phone,
-        `Hello ${phone}, I received your message: "${message}"`
+      const answer = await faqEngine.findAnswer(
+        businessId,
+        message
       );
+
+      if (answer) {
+        await sendWhatsAppMessage(phone, answer);
+      } else {
+        await sendWhatsAppMessage(
+          phone,
+          `Thank you for contacting Advertoria.
+
+We provide:
+• Branding
+• Logo Design
+• Website Development
+• UI/UX Design
+• Digital Marketing
+
+Could you tell us more about your requirement?`
+        );
+      }
     }
 
     res.sendStatus(200);
