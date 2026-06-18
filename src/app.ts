@@ -28,11 +28,18 @@ app.use("/api/slots", slotRoutes);
 app.use("/api/webhook", webhookRoutes);
 app.use("/api/test-whatsapp", testWhatsappRoutes);
 
-app.get("/api/health", (_req, res) => {
-res.status(200).json({
-success: true,
-message: "Whatsodo API Running",
+app.get("/", (_req, res) => {
+  res.status(200).json({
+    success: true,
+    message: "Whatsodo API Running",
+  });
 });
+
+app.get("/api/health", (_req, res) => {
+  res.status(200).json({
+    success: true,
+    message: "Whatsodo API Running",
+  });
 });
 
 export default app;
