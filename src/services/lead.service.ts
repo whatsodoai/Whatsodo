@@ -8,6 +8,17 @@ export class LeadService {
   async getLeads(businessId: string) {
     return await Lead.find({ businessId }).sort({ createdAt: -1 });
   }
+
+  async updateLeadStatus(
+    leadId: string,
+    status: string
+  ) {
+    return Lead.findByIdAndUpdate(
+      leadId,
+      { status },
+      { new: true }
+    );
+  }
 }
 
 export const createLead = async (
@@ -46,6 +57,17 @@ export const updateLeadInterest = async (
       interest,
       updatedAt: new Date(),
     },
+    { new: true }
+  );
+};
+
+export const updateLeadStatus = async (
+  leadId: string,
+  status: string
+) => {
+  return Lead.findByIdAndUpdate(
+    leadId,
+    { status },
     { new: true }
   );
 };

@@ -139,6 +139,12 @@ export const receiveWebhook = async (
             notes: "WhatsApp Consultation",
           });
 
+          await leadService.updateLeadStatus(
+            lead._id.toString(),
+            "Appointment Booked"
+          );
+
+          console.log("LEAD STATUS UPDATED → Appointment Booked");
           console.log("APPOINTMENT CREATED");
           console.log("SENDING CONFIRMATION...");
 
