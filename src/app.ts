@@ -14,6 +14,7 @@ import webhookRoutes from "./routes/webhook.routes";
 import testWhatsappRoutes from "./routes/test-whatsapp.routes";
 import dashboardRoutes from "./routes/dashboard.routes";
 import messageRoutes from "./routes/message.routes";
+import inboxRoutes from "./routes/inbox.routes";
 
 const app = express();
 
@@ -32,6 +33,7 @@ app.use("/api/webhook", webhookRoutes);
 app.use("/api/test-whatsapp", testWhatsappRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/messages", messageRoutes);
+app.use("/api/inbox", inboxRoutes);
 
 app.get("/test-whatsapp", async (_req, res) => {
   try {

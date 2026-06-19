@@ -18,7 +18,6 @@ create
 
 router.get(
   "/:businessId",
-  protect,
   getAll
 );
 
