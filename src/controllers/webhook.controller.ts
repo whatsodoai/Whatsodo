@@ -20,12 +20,31 @@ const appointmentKeywords = [
   "schedule", "discuss", "talk", "book",
 ];
 
-export const verifyWebhook = (req: Request, res: Response): void => {
+async function resolveBusinessBySlug(slug: string | string[] | undefined) {
+  const slugStr = Array.isArray(slug) ? slug[0] : slug;
+  if (!slugStr) return null;
+  return Business.findOne({
+    businessName: { $regex: new RegExp(`^${slugStr.replace(/-/g, " ")}$`, "i") },
+  }).lean();
+}
+
+export const verifyWebhook = async (req: Request, res: Response): Promise<void> => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
-  if (mode === "subscribe" && token === process.env.WHATSAPP_VERIFY_TOKEN) {
+  if (mode !== "subscribe") {
+    res.sendStatus(403);
+    return;
+  }
+
+  // Slug-based webhook URL (per-business) — verify against that business's
+  // own saved verify token, falling back to the shared env var if the
+  // business hasn't configured its own yet (or there's no slug at all).
+  const business = await resolveBusinessBySlug(req.params.businessSlug);
+  const expectedToken = business?.whatsappVerifyToken || process.env.WHATSAPP_VERIFY_TOKEN;
+
+  if (expectedToken && token === expectedToken) {
     console.log("✅ Webhook Verified");
     res.status(200).send(challenge);
     return;
@@ -80,12 +99,7 @@ async function processIncomingMessage(
   if (!phone) return;
 
   // Resolve businessId: slug → whatsapp number → newest business
-  const slugStr = Array.isArray(slug) ? slug[0] : slug;
-  let business = slugStr
-    ? await Business.findOne({
-        businessName: { $regex: new RegExp(`^${slugStr.replace(/-/g, " ")}$`, "i") },
-      }).lean()
-    : null;
+  let business = await resolveBusinessBySlug(slug);
 
   if (!business) {
     // Match by the WhatsApp number that received this message
@@ -108,6 +122,10 @@ async function processIncomingMessage(
 
   if (!business) return;
   const businessId = (business._id as any).toString();
+  const waCreds = {
+    accessToken: business.whatsappAccessToken,
+    phoneNumberId: business.whatsappPhoneNumberId,
+  };
 
   if (message) {
     const savedMsg = await saveMessage(businessId, phone, "incoming", message, wamid);
@@ -165,7 +183,7 @@ async function processIncomingMessage(
       const confirm = `✅ Appointment confirmed!\n\nTime: ${message.trim()}\nDate: ${today}\n\nOur team will contact you shortly. Thank you!`;
       const confirmMsg = await saveMessage(businessId, phone, "outgoing", confirm);
       try { getIO().to(`business:${businessId}`).emit("new:message", { businessId, phone, message: confirmMsg }); } catch {}
-      await sendWhatsAppMessage(phone, confirm);
+      await sendWhatsAppMessage(phone, confirm, waCreds);
       return;
     }
   }
@@ -182,7 +200,7 @@ async function processIncomingMessage(
     const slotMsg = `Here are today's available consultation slots:\n\n${slotList}\n\nReply with your preferred time (e.g. "10:00") to confirm.`;
     const slotSaved = await saveMessage(businessId, phone, "outgoing", slotMsg);
     try { getIO().to(`business:${businessId}`).emit("new:message", { businessId, phone, message: slotSaved }); } catch {}
-    await sendWhatsAppMessage(phone, slotMsg);
+    await sendWhatsAppMessage(phone, slotMsg, waCreds);
     return;
   }
 
@@ -209,7 +227,7 @@ async function processIncomingMessage(
   if (reply) {
     const replySaved = await saveMessage(businessId, phone, "outgoing", reply);
     try { getIO().to(`business:${businessId}`).emit("new:message", { businessId, phone, message: replySaved }); } catch {}
-    await sendWhatsAppMessage(phone, reply);
+    await sendWhatsAppMessage(phone, reply, waCreds);
     return;
   }
   console.error(`No KnowledgeBase found for businessId=${businessId}, falling back.`);
@@ -218,5 +236,5 @@ async function processIncomingMessage(
   const fallback = `Thank you for reaching out! Our team will get back to you shortly. Reply "BOOK" to schedule a free consultation.`;
   const fallbackSaved = await saveMessage(businessId, phone, "outgoing", fallback);
   try { getIO().to(`business:${businessId}`).emit("new:message", { businessId, phone, message: fallbackSaved }); } catch {}
-  await sendWhatsAppMessage(phone, fallback);
+  await sendWhatsAppMessage(phone, fallback, waCreds);
 }

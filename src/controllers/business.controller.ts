@@ -1,20 +1,41 @@
 import { Response } from "express";
 import { AuthRequest } from "../middleware/auth.middleware";
 import { createBusiness, getBusinesses } from "../services/business.service";
+import { isOwnerOfBusiness } from "../utils/ownership";
 import Business from "../models/Business";
+
+const slugify = (name: string) =>
+  name.trim().toLowerCase().replace(/\s+/g, "-");
 
 export const getWhatsAppDefaults = async (
   req: AuthRequest,
   res: Response
 ): Promise<void> => {
   try {
+    const { businessId } = req.query;
+
+    if (!businessId || typeof businessId !== "string") {
+      res.status(400).json({ success: false, message: "businessId is required" });
+      return;
+    }
+    if (!(await isOwnerOfBusiness(req.user!.userId, businessId))) {
+      res.status(403).json({ success: false, message: "Not authorized for this business" });
+      return;
+    }
+
+    const business = await Business.findById(businessId).lean();
+    if (!business) {
+      res.status(404).json({ success: false, message: "Business not found" });
+      return;
+    }
+
     res.json({
       success: true,
       data: {
-        webhookUrl: "https://whatsodo.onrender.com/api/webhook",
-        verifyToken: process.env.WHATSAPP_VERIFY_TOKEN || "",
-        phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || "",
-        hasAccessToken: !!(process.env.WHATSAPP_ACCESS_TOKEN),
+        webhookUrl: `https://whatsodo.onrender.com/api/webhook/${slugify(business.businessName)}`,
+        verifyToken: business.whatsappVerifyToken || process.env.WHATSAPP_VERIFY_TOKEN || "",
+        phoneNumberId: business.whatsappPhoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || "",
+        hasAccessToken: !!(business.whatsappAccessToken || process.env.WHATSAPP_ACCESS_TOKEN),
       },
     });
   } catch (error) {

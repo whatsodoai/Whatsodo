@@ -2,9 +2,15 @@ import axios from "axios";
 
 const WHATSAPP_TEXT_LIMIT = 4096;
 
+export interface WhatsAppCredentials {
+  accessToken?: string;
+  phoneNumberId?: string;
+}
+
 export const sendWhatsAppMessage = async (
   to: string,
-  message: string
+  message: string,
+  credentials?: WhatsAppCredentials
 ) => {
   try {
     if (message.length > WHATSAPP_TEXT_LIMIT) {
@@ -14,11 +20,14 @@ export const sendWhatsAppMessage = async (
       message = message.slice(0, WHATSAPP_TEXT_LIMIT - 1) + "…";
     }
 
+    // Per-business credentials (Settings page) take priority; fall back to
+    // the global env vars so businesses that haven't configured their own
+    // WhatsApp account yet keep working.
     const phoneNumberId =
-      process.env.WHATSAPP_PHONE_NUMBER_ID;
+      credentials?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
 
     const accessToken =
-      process.env.WHATSAPP_ACCESS_TOKEN;
+      credentials?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN;
 
     if (!phoneNumberId || !accessToken) {
       console.error(
