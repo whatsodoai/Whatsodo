@@ -1,5 +1,7 @@
 import { Request, Response } from "express";
+import { AuthRequest } from "../middleware/auth.middleware";
 import { createLead, getLeads } from "../services/lead.service";
+import { isOwnerOfBusiness } from "../utils/ownership";
 import Lead from "../models/Lead";
 
 export const create = async (
@@ -65,7 +67,7 @@ export const getAll = async (
 };
 
 export const search = async (
-  req: Request,
+  req: AuthRequest,
   res: Response
 ): Promise<void> => {
   try {
@@ -73,6 +75,11 @@ export const search = async (
 
     if (!businessId || !q) {
       res.status(400).json({ success: false, message: "businessId and q are required" });
+      return;
+    }
+
+    if (!(await isOwnerOfBusiness(req.user!.userId, businessId as string))) {
+      res.status(403).json({ success: false, message: "Not authorized for this business" });
       return;
     }
 
@@ -98,26 +105,28 @@ export const search = async (
 };
 
 export const updateStatus = async (
-  req: Request,
+  req: AuthRequest,
   res: Response
 ): Promise<void> => {
   try {
     const { leadId } = req.params;
     const { status } = req.body;
 
-    const lead = await Lead.findByIdAndUpdate(
-      leadId,
+    const existing = await Lead.findById(leadId);
+    if (!existing) {
+      res.status(404).json({ success: false, message: "Lead not found" });
+      return;
+    }
+    if (!(await isOwnerOfBusiness(req.user!.userId, existing.businessId.toString()))) {
+      res.status(403).json({ success: false, message: "Not authorized for this business" });
+      return;
+    }
+
+    const lead = await Lead.findOneAndUpdate(
+      { _id: leadId, businessId: existing.businessId },
       { status },
       { new: true }
     );
-
-    if (!lead) {
-      res.status(404).json({
-        success: false,
-        message: "Lead not found",
-      });
-      return;
-    }
 
     res.status(200).json({
       success: true,
@@ -135,21 +144,28 @@ export const updateStatus = async (
 };
 
 export const updateLead = async (
-  req: Request,
+  req: AuthRequest,
   res: Response
 ): Promise<void> => {
   try {
     const { id } = req.params;
     const { name, email, notes, interest, status } = req.body;
-    const updated = await Lead.findByIdAndUpdate(
-      id,
-      { ...(name && { name }), ...(email !== undefined && { email }), ...(notes !== undefined && { notes }), ...(interest && { interest }), ...(status && { status }) },
-      { new: true }
-    );
-    if (!updated) {
+
+    const existing = await Lead.findById(id);
+    if (!existing) {
       res.status(404).json({ success: false, message: "Lead not found" });
       return;
     }
+    if (!(await isOwnerOfBusiness(req.user!.userId, existing.businessId.toString()))) {
+      res.status(403).json({ success: false, message: "Not authorized for this business" });
+      return;
+    }
+
+    const updated = await Lead.findOneAndUpdate(
+      { _id: id, businessId: existing.businessId },
+      { ...(name && { name }), ...(email !== undefined && { email }), ...(notes !== undefined && { notes }), ...(interest && { interest }), ...(status && { status }) },
+      { new: true }
+    );
     res.json({ success: true, data: updated });
   } catch (error) {
     res.status(500).json({ success: false, message: error instanceof Error ? error.message : "Failed to update lead" });
@@ -157,44 +173,25 @@ export const updateLead = async (
 };
 
 export const deleteLead = async (
-  req: Request,
+  req: AuthRequest,
   res: Response
 ): Promise<void> => {
   try {
     const { id } = req.params;
-    const deleted = await Lead.findByIdAndDelete(id);
-    if (!deleted) {
+
+    const existing = await Lead.findById(id);
+    if (!existing) {
       res.status(404).json({ success: false, message: "Lead not found" });
       return;
     }
+    if (!(await isOwnerOfBusiness(req.user!.userId, existing.businessId.toString()))) {
+      res.status(403).json({ success: false, message: "Not authorized for this business" });
+      return;
+    }
+
+    await Lead.findOneAndDelete({ _id: id, businessId: existing.businessId });
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ success: false, message: error instanceof Error ? error.message : "Failed to delete lead" });
   }
-};
-
-export const cleanupDuplicates = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  const leads = await Lead.find().sort({
-    updatedAt: -1,
-  });
-
-  const seen = new Set();
-
-  for (const lead of leads) {
-    const key = `${lead.businessId}_${lead.phone}`;
-
-    if (seen.has(key)) {
-      await Lead.findByIdAndDelete(lead._id);
-    } else {
-      seen.add(key);
-    }
-  }
-
-  res.json({
-    success: true,
-    message: "Duplicate leads removed",
-  });
 };

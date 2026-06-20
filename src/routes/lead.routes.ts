@@ -6,10 +6,10 @@ import {
   updateStatus,
   updateLead,
   deleteLead,
-  cleanupDuplicates,
 } from "../controllers/lead.controller";
 
 import { protect } from "../middleware/auth.middleware";
+import { verifyBusinessOwnership } from "../middleware/business-ownership.middleware";
 
 const router = Router();
 
@@ -25,6 +25,7 @@ router.get("/search", protect, search);
 router.get(
   "/:businessId",
   protect,
+  verifyBusinessOwnership,
   getAll
 );
 
@@ -38,11 +39,6 @@ router.patch(
   "/:id",
   protect,
   updateLead
-);
-
-router.delete(
-  "/cleanup/duplicates",
-  cleanupDuplicates
 );
 
 router.delete(

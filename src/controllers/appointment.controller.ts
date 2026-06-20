@@ -1,8 +1,10 @@
 import { Request, Response } from "express";
+import { AuthRequest } from "../middleware/auth.middleware";
 import {
   createAppointment,
   getAppointments,
 } from "../services/appointment.service";
+import { isOwnerOfBusiness } from "../utils/ownership";
 import Appointment from "../models/Appointment";
 import Lead from "../models/Lead";
 
@@ -66,18 +68,6 @@ export const getCalendar = async (
   }
 };
 
-export const clearAppointments = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  await Appointment.deleteMany({});
-
-  res.json({
-    success: true,
-    message: "All appointments cleared",
-  });
-};
-
 export const getAll = async (
   req: Request,
   res: Response
@@ -103,23 +93,28 @@ export const getAll = async (
 };
 
 export const updateStatus = async (
-  req: Request,
+  req: AuthRequest,
   res: Response
 ): Promise<void> => {
   try {
     const { id } = req.params;
     const { status, notes } = req.body;
 
-    const appointment = await Appointment.findByIdAndUpdate(
-      id,
-      { ...(status && { status }), ...(notes !== undefined && { notes }) },
-      { new: true }
-    ).populate("leadId", "name phone");
-
-    if (!appointment) {
+    const existing = await Appointment.findById(id);
+    if (!existing) {
       res.status(404).json({ success: false, message: "Appointment not found" });
       return;
     }
+    if (!(await isOwnerOfBusiness(req.user!.userId, existing.businessId.toString()))) {
+      res.status(403).json({ success: false, message: "Not authorized for this business" });
+      return;
+    }
+
+    const appointment = await Appointment.findOneAndUpdate(
+      { _id: id, businessId: existing.businessId },
+      { ...(status && { status }), ...(notes !== undefined && { notes }) },
+      { new: true }
+    ).populate("leadId", "name phone");
 
     res.json({ success: true, data: appointment });
   } catch (error) {
