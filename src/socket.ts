@@ -6,7 +6,7 @@ let io: Server;
 export function initSocket(httpServer: http.Server): Server {
   io = new Server(httpServer, {
     cors: {
-      origin: process.env.FRONTEND_URL || "http://localhost:3000",
+      origin: process.env.FRONTEND_URL ? [process.env.FRONTEND_URL, "http://localhost:3000"] : "*",
       methods: ["GET", "POST"],
     },
   });
