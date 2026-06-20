@@ -1,10 +1,19 @@
 import axios from "axios";
 
+const WHATSAPP_TEXT_LIMIT = 4096;
+
 export const sendWhatsAppMessage = async (
   to: string,
   message: string
 ) => {
   try {
+    if (message.length > WHATSAPP_TEXT_LIMIT) {
+      console.error(
+        `WHATSAPP API: message length ${message.length} exceeds ${WHATSAPP_TEXT_LIMIT}-char limit, truncating.`
+      );
+      message = message.slice(0, WHATSAPP_TEXT_LIMIT - 1) + "…";
+    }
+
     const phoneNumberId =
       process.env.WHATSAPP_PHONE_NUMBER_ID;
 

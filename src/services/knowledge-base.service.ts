@@ -65,16 +65,28 @@ export const buildKnowledgeBaseReply = async (
     }
   }
 
-  const lines: string[] = [];
-  lines.push(`Hi! This is ${kb.companyName}.`);
-  if (kb.companyDescription) lines.push(kb.companyDescription);
-  if (kb.services?.length) {
-    lines.push(`\nOur services:\n${kb.services.map((s) => `• ${s}`).join("\n")}`);
-  }
-  if (kb.offers?.length) {
-    lines.push(`\nCurrent offers:\n${kb.offers.map((o) => `• ${o}`).join("\n")}`);
-  }
-  lines.push(`\nReply "BOOK" to schedule a free consultation, or ask us anything!`);
+  const asksAboutServices = ["service", "services", "offer", "offers", "price", "pricing", "cost", "package"]
+    .some((w) => userWords.has(w));
 
-  return lines.join("\n");
+  if (asksAboutServices) {
+    const lines: string[] = [`Hi! Here's what ${kb.companyName} offers:`];
+    if (kb.services?.length) {
+      lines.push(kb.services.slice(0, 5).map((s) => `• ${s}`).join("\n"));
+    }
+    if (kb.offers?.length) {
+      lines.push(`\nCurrent offers:\n${kb.offers.slice(0, 3).map((o) => `• ${o}`).join("\n")}`);
+    }
+    lines.push(`\nReply "BOOK" to schedule a free consultation.`);
+    return lines.join("\n");
+  }
+
+  // Generic greeting / unmatched message — short intro, not a full KB dump.
+  const shortDescription = kb.companyDescription
+    ? kb.companyDescription.split(/(?<=[.!?])\s/)[0]
+    : "";
+
+  return [
+    `Hi! This is ${kb.companyName}.${shortDescription ? " " + shortDescription : ""}`,
+    `What can we help you with — our services, pricing, or booking a consultation? Reply "BOOK" anytime to schedule one.`,
+  ].join("\n");
 };
