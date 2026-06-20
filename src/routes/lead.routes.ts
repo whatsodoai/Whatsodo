@@ -4,6 +4,7 @@ import {
   getAll,
   search,
   updateStatus,
+  assignLead,
   updateLead,
   deleteLead,
 } from "../controllers/lead.controller";
@@ -33,6 +34,12 @@ router.patch(
   "/:leadId/status",
   protect,
   updateStatus
+);
+
+router.patch(
+  "/:leadId/assign",
+  protect,
+  assignLead
 );
 
 router.patch(

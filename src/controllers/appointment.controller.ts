@@ -4,7 +4,7 @@ import {
   createAppointment,
   getAppointments,
 } from "../services/appointment.service";
-import { isOwnerOfBusiness } from "../utils/ownership";
+import { hasBusinessAccess } from "../utils/ownership";
 import Appointment from "../models/Appointment";
 import Lead from "../models/Lead";
 
@@ -105,7 +105,7 @@ export const updateStatus = async (
       res.status(404).json({ success: false, message: "Appointment not found" });
       return;
     }
-    if (!(await isOwnerOfBusiness(req.user!.userId, existing.businessId.toString()))) {
+    if (!(await hasBusinessAccess(req.user!.userId, existing.businessId.toString()))) {
       res.status(403).json({ success: false, message: "Not authorized for this business" });
       return;
     }

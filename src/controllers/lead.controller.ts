@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { AuthRequest } from "../middleware/auth.middleware";
 import { createLead, getLeads } from "../services/lead.service";
-import { isOwnerOfBusiness } from "../utils/ownership";
+import { hasBusinessAccess } from "../utils/ownership";
 import Lead from "../models/Lead";
 
 export const create = async (
@@ -78,7 +78,7 @@ export const search = async (
       return;
     }
 
-    if (!(await isOwnerOfBusiness(req.user!.userId, businessId as string))) {
+    if (!(await hasBusinessAccess(req.user!.userId, businessId as string))) {
       res.status(403).json({ success: false, message: "Not authorized for this business" });
       return;
     }
@@ -117,7 +117,7 @@ export const updateStatus = async (
       res.status(404).json({ success: false, message: "Lead not found" });
       return;
     }
-    if (!(await isOwnerOfBusiness(req.user!.userId, existing.businessId.toString()))) {
+    if (!(await hasBusinessAccess(req.user!.userId, existing.businessId.toString()))) {
       res.status(403).json({ success: false, message: "Not authorized for this business" });
       return;
     }
@@ -143,6 +143,39 @@ export const updateStatus = async (
   }
 };
 
+export const assignLead = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { leadId } = req.params;
+    const { userId } = req.body; // null/undefined unassigns
+
+    const existing = await Lead.findById(leadId);
+    if (!existing) {
+      res.status(404).json({ success: false, message: "Lead not found" });
+      return;
+    }
+    if (!(await hasBusinessAccess(req.user!.userId, existing.businessId.toString()))) {
+      res.status(403).json({ success: false, message: "Not authorized for this business" });
+      return;
+    }
+
+    const lead = await Lead.findOneAndUpdate(
+      { _id: leadId, businessId: existing.businessId },
+      { assignedTo: userId || null },
+      { new: true }
+    );
+
+    res.status(200).json({ success: true, data: lead });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error instanceof Error ? error.message : "Failed to assign lead",
+    });
+  }
+};
+
 export const updateLead = async (
   req: AuthRequest,
   res: Response
@@ -156,7 +189,7 @@ export const updateLead = async (
       res.status(404).json({ success: false, message: "Lead not found" });
       return;
     }
-    if (!(await isOwnerOfBusiness(req.user!.userId, existing.businessId.toString()))) {
+    if (!(await hasBusinessAccess(req.user!.userId, existing.businessId.toString()))) {
       res.status(403).json({ success: false, message: "Not authorized for this business" });
       return;
     }
@@ -184,7 +217,7 @@ export const deleteLead = async (
       res.status(404).json({ success: false, message: "Lead not found" });
       return;
     }
-    if (!(await isOwnerOfBusiness(req.user!.userId, existing.businessId.toString()))) {
+    if (!(await hasBusinessAccess(req.user!.userId, existing.businessId.toString()))) {
       res.status(403).json({ success: false, message: "Not authorized for this business" });
       return;
     }

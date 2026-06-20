@@ -21,6 +21,8 @@ export const createBusiness = async (
   return business;
 };
 
-export const getBusinesses = async (ownerId: string) => {
-  return await Business.find({ ownerId }).sort({ createdAt: -1 });
+export const getBusinesses = async (userId: string) => {
+  return await Business.find({
+    $or: [{ ownerId: userId }, { "members.userId": userId }],
+  }).sort({ createdAt: -1 });
 };

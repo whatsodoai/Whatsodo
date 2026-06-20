@@ -11,6 +11,7 @@ export interface ILead extends Document {
   notes?: string;
   intentTag?: "hot" | "warm" | "cold";
   intentScore?: number;
+  assignedTo?: mongoose.Types.ObjectId;
 }
 
 const leadSchema = new Schema<ILead>(
@@ -45,6 +46,10 @@ const leadSchema = new Schema<ILead>(
       default: "warm",
     },
     intentScore: Number,
+    assignedTo: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+    },
   },
   {
     timestamps: true,
