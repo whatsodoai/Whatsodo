@@ -6,6 +6,9 @@ export interface IBusiness extends Document {
   whatsappNumber: string;
   timezone: string;
   ownerId: mongoose.Types.ObjectId;
+  whatsappAccessToken?: string;
+  whatsappPhoneNumberId?: string;
+  whatsappVerifyToken?: string;
 }
 
 const businessSchema = new Schema<IBusiness>(
@@ -30,6 +33,15 @@ const businessSchema = new Schema<IBusiness>(
       type: Schema.Types.ObjectId,
       ref: "User",
       required: true,
+    },
+    whatsappAccessToken: {
+      type: String,
+    },
+    whatsappPhoneNumberId: {
+      type: String,
+    },
+    whatsappVerifyToken: {
+      type: String,
     },
   },
   {

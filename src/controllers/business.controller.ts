@@ -3,6 +3,28 @@ import { AuthRequest } from "../middleware/auth.middleware";
 import { createBusiness, getBusinesses } from "../services/business.service";
 import Business from "../models/Business";
 
+export const getWhatsAppDefaults = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    res.json({
+      success: true,
+      data: {
+        webhookUrl: "https://whatsodo.onrender.com/api/webhook",
+        verifyToken: process.env.WHATSAPP_VERIFY_TOKEN || "",
+        phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || "",
+        hasAccessToken: !!(process.env.WHATSAPP_ACCESS_TOKEN),
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch WhatsApp defaults",
+    });
+  }
+};
+
 export const create = async (
   req: AuthRequest,
   res: Response
@@ -56,11 +78,19 @@ export const update = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
-    const { businessName, industry, whatsappNumber, timezone } = req.body;
+    const { businessName, industry, whatsappNumber, timezone, whatsappAccessToken, whatsappPhoneNumberId, whatsappVerifyToken } = req.body;
 
     const business = await Business.findOneAndUpdate(
       { _id: id, ownerId: req.user!.userId },
-      { ...(businessName && { businessName }), ...(industry && { industry }), ...(whatsappNumber && { whatsappNumber }), ...(timezone && { timezone }) },
+      {
+        ...(businessName && { businessName }),
+        ...(industry && { industry }),
+        ...(whatsappNumber && { whatsappNumber }),
+        ...(timezone && { timezone }),
+        ...(whatsappAccessToken !== undefined && { whatsappAccessToken }),
+        ...(whatsappPhoneNumberId !== undefined && { whatsappPhoneNumberId }),
+        ...(whatsappVerifyToken !== undefined && { whatsappVerifyToken }),
+      },
       { new: true }
     );
 
