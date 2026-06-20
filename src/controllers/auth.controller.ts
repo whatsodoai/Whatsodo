@@ -13,13 +13,22 @@ export const register = async (
 
     const user = await registerUser(name, email, password);
 
+    const token = generateToken(
+      user._id.toString(),
+      user.email,
+      user.role
+    );
+
     res.status(201).json({
       success: true,
       message: "User registered successfully",
-      data: {
+      token,
+      businessId: null,
+      user: {
         id: user._id,
         name: user.name,
         email: user.email,
+        role: user.role,
       },
     });
   } catch (error) {
