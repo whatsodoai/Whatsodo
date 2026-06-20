@@ -9,6 +9,8 @@ export interface ILead extends Document {
   source: string;
   status: string;
   notes?: string;
+  intentTag?: "hot" | "warm" | "cold";
+  intentScore?: number;
 }
 
 const leadSchema = new Schema<ILead>(
@@ -37,6 +39,12 @@ const leadSchema = new Schema<ILead>(
       default: "New Lead",
     },
     notes: String,
+    intentTag: {
+      type: String,
+      enum: ["hot", "warm", "cold"],
+      default: "warm",
+    },
+    intentScore: Number,
   },
   {
     timestamps: true,

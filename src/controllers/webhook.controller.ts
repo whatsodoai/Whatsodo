@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { sendWhatsAppMessage } from "../services/whatsapp.service";
 import { buildKnowledgeBaseReply, buildAISystemPrompt } from "../services/knowledge-base.service";
-import { generateReply, ChatTurn } from "../services/ai.service";
+import { generateReply, scoreLeadIntent, ChatTurn } from "../services/ai.service";
 import {
   LeadService,
   findLeadByPhone,
@@ -11,6 +11,7 @@ import { createAppointment } from "../services/appointment.service";
 import { getNextAvailableSlots } from "../services/slot.service";
 import { saveMessage, isDuplicateWamid, getConversation } from "../services/message.service";
 import Business from "../models/Business";
+import Lead from "../models/Lead";
 import { getIO } from "../socket";
 
 const leadService = new LeadService();
@@ -163,6 +164,28 @@ async function processIncomingMessage(
     }
   }
 
+  const history: ChatTurn[] = (await getConversation(businessId, phone))
+    .slice(-6)
+    .map((m: any) => ({
+      role: m.direction === "incoming" ? "user" : "assistant",
+      content: m.message,
+    }));
+
+  // AI lead intent scoring — fire-and-forget, never blocks the reply path.
+  if (lead) {
+    const leadId = lead._id.toString();
+    scoreLeadIntent(history)
+      .then((intent) => {
+        if (intent) {
+          return Lead.findByIdAndUpdate(leadId, {
+            intentTag: intent.tag,
+            intentScore: intent.score,
+          });
+        }
+      })
+      .catch((err) => console.error("Lead intent scoring failed:", err));
+  }
+
   // ── STEP 2–5 only apply to real text messages ──
   if (!message || msgType !== "text") return;
 
@@ -211,12 +234,6 @@ async function processIncomingMessage(
   let reply: string | null = null;
 
   if (systemPrompt) {
-    const history = (await getConversation(businessId, phone))
-      .slice(-6)
-      .map<ChatTurn>((m: any) => ({
-        role: m.direction === "incoming" ? "user" : "assistant",
-        content: m.message,
-      }));
     reply = await generateReply(systemPrompt, message, history);
   }
 
