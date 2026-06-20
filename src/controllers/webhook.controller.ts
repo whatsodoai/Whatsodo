@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { sendWhatsAppMessage } from "../services/whatsapp.service";
-import { buildKnowledgeBaseReply } from "../services/knowledge-base.service";
+import { buildKnowledgeBaseReply, buildAISystemPrompt } from "../services/knowledge-base.service";
+import { generateReply, ChatTurn } from "../services/ai.service";
 import {
   LeadService,
   findLeadByPhone,
@@ -8,7 +9,7 @@ import {
 } from "../services/lead.service";
 import { createAppointment } from "../services/appointment.service";
 import { getNextAvailableSlots } from "../services/slot.service";
-import { saveMessage, isDuplicateWamid } from "../services/message.service";
+import { saveMessage, isDuplicateWamid, getConversation } from "../services/message.service";
 import Business from "../models/Business";
 import { getIO } from "../socket";
 
@@ -185,12 +186,30 @@ async function processIncomingMessage(
     return;
   }
 
-  // ── STEP 4: Knowledge-base-driven reply (no LLM call) ──
-  const kbReply = await buildKnowledgeBaseReply(businessId, message);
-  if (kbReply) {
-    const replySaved = await saveMessage(businessId, phone, "outgoing", kbReply);
+  // ── STEP 4: AI reply grounded in the knowledge base, with a rule-based
+  //    fallback if the AI call fails (quota, outage, etc.) so the bot
+  //    never goes silent. ──
+  const systemPrompt = await buildAISystemPrompt(businessId);
+  let reply: string | null = null;
+
+  if (systemPrompt) {
+    const history = (await getConversation(businessId, phone))
+      .slice(-6)
+      .map<ChatTurn>((m: any) => ({
+        role: m.direction === "incoming" ? "user" : "assistant",
+        content: m.message,
+      }));
+    reply = await generateReply(systemPrompt, message, history);
+  }
+
+  if (!reply) {
+    reply = await buildKnowledgeBaseReply(businessId, message);
+  }
+
+  if (reply) {
+    const replySaved = await saveMessage(businessId, phone, "outgoing", reply);
     try { getIO().to(`business:${businessId}`).emit("new:message", { businessId, phone, message: replySaved }); } catch {}
-    await sendWhatsAppMessage(phone, kbReply);
+    await sendWhatsAppMessage(phone, reply);
     return;
   }
   console.error(`No KnowledgeBase found for businessId=${businessId}, falling back.`);

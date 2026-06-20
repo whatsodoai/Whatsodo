@@ -90,3 +90,39 @@ export const buildKnowledgeBaseReply = async (
     `What can we help you with — our services, pricing, or booking a consultation? Reply "BOOK" anytime to schedule one.`,
   ].join("\n");
 };
+
+/**
+ * System prompt for the LLM, grounded in this business's KnowledgeBase.
+ * Kept under WhatsApp's 4096-char message limit by instructing the model
+ * to stay short — sendWhatsAppMessage also truncates as a hard backstop.
+ */
+export const buildAISystemPrompt = async (
+  businessId: string
+): Promise<string | null> => {
+  const kb = await getKnowledgeBaseByBusiness(businessId);
+  if (!kb) return null;
+
+  return `
+You are a WhatsApp customer-support assistant for ${kb.companyName}.
+
+About the business: ${kb.companyDescription}
+
+Services: ${kb.services?.join(", ")}
+
+FAQs:
+${kb.faqs?.map((f) => `Q: ${f.question}\nA: ${f.answer}`).join("\n\n")}
+
+Sales instructions: ${kb.salesInstructions}
+Appointment instructions: ${kb.appointmentInstructions}
+Tone: ${kb.tone || "Professional"}
+
+Offers: ${kb.offers?.join(", ")}
+Objection handling: ${kb.objectionHandling?.map((o) => `If "${o.objection}" → "${o.response}"`).join("; ")}
+
+Rules:
+- Reply in the same language the customer uses.
+- Keep replies under 300 characters — this is WhatsApp, not email.
+- Only answer using the information above. If you don't know something, say you'll connect them with the team — never invent facts about the business.
+- If the customer wants to book or consult, ask them to reply "BOOK".
+`.trim();
+};
