@@ -8,6 +8,7 @@ import {
   addMember,
   removeMember,
   addTemplate,
+  addCarouselTemplate,
   removeTemplate,
 } from "../controllers/business.controller";
 import { protect } from "../middleware/auth.middleware";
@@ -22,6 +23,7 @@ router.patch("/:id", protect, update);
 router.post("/:id/members", protect, addMember);
 router.delete("/:id/members/:userId", protect, removeMember);
 router.post("/:id/templates", protect, addTemplate);
+router.post("/:id/templates/carousel", protect, addCarouselTemplate);
 router.delete("/:id/templates/:templateName", protect, removeTemplate);
 
 export default router;

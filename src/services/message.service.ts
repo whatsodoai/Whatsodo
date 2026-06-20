@@ -1,11 +1,19 @@
 import Message from "../models/Message";
 
+export interface MessageMedia {
+  mediaType: "image" | "video" | "document";
+  mediaUrl: string;
+  mediaCaption?: string;
+  fileName?: string;
+}
+
 export const saveMessage = async (
   businessId: string,
   phone: string,
   direction: "incoming" | "outgoing",
   message: string,
-  wamid?: string
+  wamid?: string,
+  media?: MessageMedia
 ) => {
   console.log("MESSAGE SAVED:", direction, message);
 
@@ -16,6 +24,7 @@ export const saveMessage = async (
     message,
     isRead: direction === "outgoing",
     wamid,
+    ...media,
   });
 };
 

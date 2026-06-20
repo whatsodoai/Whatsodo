@@ -1,7 +1,9 @@
 import { Response } from "express";
+import axios from "axios";
 import { AuthRequest } from "../middleware/auth.middleware";
 import { createBusiness, getBusinesses } from "../services/business.service";
 import { isBusinessOwner, hasBusinessAccess } from "../utils/ownership";
+import { uploadMediaToMeta, createWhatsAppCarouselTemplate } from "../services/whatsapp.service";
 import Business from "../models/Business";
 import User from "../models/User";
 
@@ -100,7 +102,17 @@ export const update = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
-    const { businessName, industry, whatsappNumber, timezone, whatsappAccessToken, whatsappPhoneNumberId, whatsappVerifyToken } = req.body;
+    const {
+      businessName,
+      industry,
+      whatsappNumber,
+      timezone,
+      whatsappAccessToken,
+      whatsappPhoneNumberId,
+      whatsappVerifyToken,
+      whatsappBusinessAccountId,
+      whatsappAppId,
+    } = req.body;
 
     const business = await Business.findOneAndUpdate(
       { _id: id, ownerId: req.user!.userId },
@@ -112,6 +124,8 @@ export const update = async (
         ...(whatsappAccessToken !== undefined && { whatsappAccessToken }),
         ...(whatsappPhoneNumberId !== undefined && { whatsappPhoneNumberId }),
         ...(whatsappVerifyToken !== undefined && { whatsappVerifyToken }),
+        ...(whatsappBusinessAccountId !== undefined && { whatsappBusinessAccountId }),
+        ...(whatsappAppId !== undefined && { whatsappAppId }),
       },
       { new: true }
     );
@@ -276,6 +290,7 @@ export const addTemplate = async (
             bodyPreview: bodyPreview || "",
             variableCount: variableCount || 0,
             createdAt: new Date(),
+            type: "standard",
           },
         },
       },
@@ -292,6 +307,93 @@ export const addTemplate = async (
     res.status(500).json({
       success: false,
       message: error instanceof Error ? error.message : "Failed to add template",
+    });
+  }
+};
+
+export const addCarouselTemplate = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { name, language, bodyText, cards } = req.body;
+
+    if (!name || !language || !bodyText || !Array.isArray(cards) || cards.length === 0) {
+      res.status(400).json({
+        success: false,
+        message: "name, language, bodyText and at least one card are required",
+      });
+      return;
+    }
+
+    if (!(await isBusinessOwner(req.user!.userId, id as string))) {
+      res.status(403).json({ success: false, message: "Only the business owner can do this" });
+      return;
+    }
+
+    const business = await Business.findById(id);
+    if (!business) {
+      res.status(404).json({ success: false, message: "Business not found" });
+      return;
+    }
+
+    const wabaId = business.whatsappBusinessAccountId;
+    const appId = business.whatsappAppId;
+    const accessToken = business.whatsappAccessToken || process.env.WHATSAPP_ACCESS_TOKEN;
+
+    if (!wabaId || !appId || !accessToken) {
+      res.status(400).json({
+        success: false,
+        message: "WhatsApp Business Account ID, App ID and access token must be configured in Settings first",
+      });
+      return;
+    }
+
+    const cardPayloads = await Promise.all(
+      cards.map(async (card: { imageUrl: string; bodyText: string; buttons?: { type: "QUICK_REPLY" | "URL" | "PHONE_NUMBER"; text: string; value?: string }[] }) => {
+        const imageRes = await axios.get(card.imageUrl, { responseType: "arraybuffer" });
+        const buffer = Buffer.from(imageRes.data);
+        const mimeType = String(imageRes.headers["content-type"] || "image/jpeg");
+        const imageHandle = await uploadMediaToMeta(appId, accessToken, buffer, mimeType);
+
+        return {
+          imageHandle,
+          bodyText: card.bodyText,
+          buttons: card.buttons || [],
+        };
+      })
+    );
+
+    const metaResult = await createWhatsAppCarouselTemplate(wabaId, accessToken, {
+      name,
+      language,
+      bodyText,
+      cards: cardPayloads,
+    });
+
+    business.whatsappTemplates.push({
+      name,
+      language,
+      bodyPreview: bodyText,
+      variableCount: 0,
+      createdAt: new Date(),
+      type: "carousel",
+      status: (metaResult.status as "PENDING" | "APPROVED" | "REJECTED") || "PENDING",
+      metaTemplateId: metaResult.id,
+      cards: cards.map((card: { imageUrl: string; bodyText: string; buttons?: any[] }) => ({
+        imageUrl: card.imageUrl,
+        bodyText: card.bodyText,
+        buttons: card.buttons || [],
+      })),
+    });
+    await business.save();
+
+    res.status(201).json({ success: true, data: business.whatsappTemplates });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: error?.response?.data?.error?.message || (error instanceof Error ? error.message : "Failed to create carousel template"),
     });
   }
 };

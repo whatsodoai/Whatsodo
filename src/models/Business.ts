@@ -6,12 +6,28 @@ export interface IBusinessMember {
   addedAt: Date;
 }
 
+export interface ICarouselButton {
+  type: "QUICK_REPLY" | "URL" | "PHONE_NUMBER";
+  text: string;
+  value?: string;
+}
+
+export interface ICarouselCard {
+  imageUrl: string;
+  bodyText: string;
+  buttons: ICarouselButton[];
+}
+
 export interface IWhatsAppTemplate {
   name: string;
   language: string;
   bodyPreview: string;
   variableCount: number;
   createdAt: Date;
+  type: "standard" | "carousel";
+  status?: "PENDING" | "APPROVED" | "REJECTED";
+  metaTemplateId?: string;
+  cards?: ICarouselCard[];
 }
 
 export interface IBusiness extends Document {
@@ -23,6 +39,8 @@ export interface IBusiness extends Document {
   whatsappAccessToken?: string;
   whatsappPhoneNumberId?: string;
   whatsappVerifyToken?: string;
+  whatsappBusinessAccountId?: string;
+  whatsappAppId?: string;
   members: IBusinessMember[];
   whatsappTemplates: IWhatsAppTemplate[];
 }
@@ -59,6 +77,12 @@ const businessSchema = new Schema<IBusiness>(
     whatsappVerifyToken: {
       type: String,
     },
+    whatsappBusinessAccountId: {
+      type: String,
+    },
+    whatsappAppId: {
+      type: String,
+    },
     members: [
       {
         userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
@@ -73,6 +97,22 @@ const businessSchema = new Schema<IBusiness>(
         bodyPreview: { type: String, default: "" },
         variableCount: { type: Number, default: 0 },
         createdAt: { type: Date, default: Date.now },
+        type: { type: String, enum: ["standard", "carousel"], default: "standard" },
+        status: { type: String, enum: ["PENDING", "APPROVED", "REJECTED"] },
+        metaTemplateId: { type: String },
+        cards: [
+          {
+            imageUrl: { type: String, required: true },
+            bodyText: { type: String, required: true },
+            buttons: [
+              {
+                type: { type: String, enum: ["QUICK_REPLY", "URL", "PHONE_NUMBER"], required: true },
+                text: { type: String, required: true },
+                value: { type: String },
+              },
+            ],
+          },
+        ],
       },
     ],
   },

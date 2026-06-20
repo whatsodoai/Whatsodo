@@ -28,6 +28,19 @@ const messageSchema = new Schema(
       unique: true,
       sparse: true,
     },
+    mediaType: {
+      type: String,
+      enum: ["image", "video", "document"],
+    },
+    mediaUrl: {
+      type: String,
+    },
+    mediaCaption: {
+      type: String,
+    },
+    fileName: {
+      type: String,
+    },
   },
   {
     timestamps: true,

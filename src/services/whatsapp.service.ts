@@ -69,10 +69,64 @@ export const sendWhatsAppMessage = async (
   }
 };
 
+export interface WhatsAppMediaOptions {
+  caption?: string;
+  filename?: string;
+}
+
+export const sendWhatsAppMedia = async (
+  to: string,
+  type: "image" | "video" | "document",
+  url: string,
+  options?: WhatsAppMediaOptions,
+  credentials?: WhatsAppCredentials
+) => {
+  const phoneNumberId =
+    credentials?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const accessToken =
+    credentials?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN;
+
+  if (!phoneNumberId || !accessToken) {
+    throw new Error("WhatsApp credentials are not configured");
+  }
+
+  const mediaObject: Record<string, string> = { link: url };
+  if (options?.caption) mediaObject.caption = options.caption;
+  if (type === "document" && options?.filename) mediaObject.filename = options.filename;
+
+  const requestUrl = `https://graph.facebook.com/v25.0/${phoneNumberId}/messages`;
+
+  try {
+    const response = await axios.post(
+      requestUrl,
+      {
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to,
+        type,
+        [type]: mediaObject,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    return response.data;
+  } catch (error: any) {
+    console.log("WHATSAPP MEDIA API ERROR:", error?.response?.data || error.message);
+    throw error;
+  }
+};
+
 export interface WhatsAppTemplatePayload {
   name: string;
   language: string;
   variables?: string[];
+  isCarousel?: boolean;
+  cardBodyVariables?: string[][];
 }
 
 /**
@@ -93,7 +147,7 @@ export const sendWhatsAppTemplate = async (
     throw new Error("WhatsApp credentials are not configured");
   }
 
-  const components = template.variables?.length
+  const components: Record<string, unknown>[] = template.variables?.length
     ? [
         {
           type: "body",
@@ -101,6 +155,23 @@ export const sendWhatsAppTemplate = async (
         },
       ]
     : [];
+
+  if (template.isCarousel && template.cardBodyVariables?.length) {
+    components.push({
+      type: "carousel",
+      cards: template.cardBodyVariables.map((vars, index) => ({
+        card_index: index,
+        components: vars.length
+          ? [
+              {
+                type: "body",
+                parameters: vars.map((v) => ({ type: "text", text: v })),
+              },
+            ]
+          : [],
+      })),
+    });
+  }
 
   const url = `https://graph.facebook.com/v25.0/${phoneNumberId}/messages`;
 
@@ -129,6 +200,118 @@ export const sendWhatsAppTemplate = async (
     return response.data;
   } catch (error: any) {
     console.log("WHATSAPP TEMPLATE API ERROR:", error?.response?.data || error.message);
+    throw error;
+  }
+};
+
+/**
+ * Uploads an image to Meta's Resumable Upload API and returns the
+ * `header_handle` needed as the `example` for a template's IMAGE header —
+ * a public URL alone isn't accepted when creating templates with media.
+ */
+export const uploadMediaToMeta = async (
+  appId: string,
+  accessToken: string,
+  buffer: Buffer,
+  mimeType: string
+): Promise<string> => {
+  const sessionRes = await axios.post(
+    `https://graph.facebook.com/v25.0/${appId}/uploads`,
+    null,
+    {
+      params: {
+        file_length: buffer.length,
+        file_type: mimeType,
+        access_token: accessToken,
+      },
+    }
+  );
+
+  const uploadSessionId = sessionRes.data.id;
+
+  const uploadRes = await axios.post(
+    `https://graph.facebook.com/v25.0/${uploadSessionId}`,
+    buffer,
+    {
+      headers: {
+        Authorization: `OAuth ${accessToken}`,
+        "Content-Type": "application/octet-stream",
+        file_offset: "0",
+      },
+    }
+  );
+
+  return uploadRes.data.h;
+};
+
+export interface CarouselCardPayload {
+  imageHandle: string;
+  bodyText: string;
+  buttons: { type: "QUICK_REPLY" | "URL" | "PHONE_NUMBER"; text: string; value?: string }[];
+}
+
+export interface CreateTemplatePayload {
+  name: string;
+  language: string;
+  bodyText: string;
+  cards: CarouselCardPayload[];
+}
+
+/**
+ * Submits a carousel message template to Meta for review via
+ * POST /{waba-id}/message_templates. Approval is async — Meta returns a
+ * PENDING status immediately and reviews over the following hours/days.
+ */
+export const createWhatsAppCarouselTemplate = async (
+  wabaId: string,
+  accessToken: string,
+  payload: CreateTemplatePayload
+) => {
+  const buttonComponent = (buttons: CarouselCardPayload["buttons"]) =>
+    buttons.map((b) => ({
+      type: b.type,
+      text: b.text,
+      ...(b.type === "URL" && { url: b.value }),
+      ...(b.type === "PHONE_NUMBER" && { phone_number: b.value }),
+    }));
+
+  const cards = payload.cards.map((card) => ({
+    components: [
+      {
+        type: "HEADER",
+        format: "IMAGE",
+        example: { header_handle: [card.imageHandle] },
+      },
+      { type: "BODY", text: card.bodyText },
+      ...(card.buttons.length
+        ? [{ type: "BUTTONS", buttons: buttonComponent(card.buttons) }]
+        : []),
+    ],
+  }));
+
+  try {
+    const response = await axios.post(
+      `https://graph.facebook.com/v25.0/${wabaId}/message_templates`,
+      {
+        name: payload.name,
+        language: payload.language,
+        category: "MARKETING",
+        components: [
+          { type: "BODY", text: payload.bodyText },
+          { type: "CAROUSEL", cards },
+        ],
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    return response.data as { id: string; status: string };
+  } catch (error: any) {
+    console.log("WHATSAPP CREATE TEMPLATE API ERROR:", error?.response?.data || error.message);
     throw error;
   }
 };
