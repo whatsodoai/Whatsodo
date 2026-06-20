@@ -2,7 +2,10 @@ import { Router } from "express";
 import {
   create,
   getAll,
+  search,
   updateStatus,
+  updateLead,
+  deleteLead,
   cleanupDuplicates,
 } from "../controllers/lead.controller";
 
@@ -16,8 +19,12 @@ protect,
 create
 );
 
+// /search must be before /:businessId to avoid route collision
+router.get("/search", protect, search);
+
 router.get(
   "/:businessId",
+  protect,
   getAll
 );
 
@@ -27,9 +34,21 @@ router.patch(
   updateStatus
 );
 
+router.patch(
+  "/:id",
+  protect,
+  updateLead
+);
+
 router.delete(
   "/cleanup/duplicates",
   cleanupDuplicates
+);
+
+router.delete(
+  "/:id",
+  protect,
+  deleteLead
 );
 
 export default router;

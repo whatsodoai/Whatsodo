@@ -47,16 +47,22 @@ export const getSummary = async (
         businessId,
       });
 
+    const appointmentBooked = await Lead.countDocuments({
+      businessId,
+      status: 'Appointment Booked',
+    });
+
     res.json({
       success: true,
       data: {
         totalLeads,
         newLeads,
-        contactedLeads,
-        qualifiedLeads,
-        wonLeads,
-        lostLeads,
-        appointments,
+        contacted: contactedLeads,
+        qualified: qualifiedLeads,
+        won: wonLeads,
+        lost: lostLeads,
+        totalAppointments: appointments,
+        appointmentBooked,
       },
     });
   } catch (error) {

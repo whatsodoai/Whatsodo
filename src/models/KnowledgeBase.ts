@@ -36,7 +36,7 @@ const knowledgeBaseSchema = new Schema<IKnowledgeBase>(
     },
     companyDescription: {
       type: String,
-      required: true,
+      default: '',
     },
     services: [{ type: String }],
     faqs: [

@@ -1,293 +1,226 @@
 import { Request, Response } from "express";
 import { sendWhatsAppMessage } from "../services/whatsapp.service";
-import { FAQEngineService } from "../services/faq-engine.service";
+import { generateReply } from "../services/ai.service";
+import { getKnowledgeBaseByBusiness } from "../services/knowledge-base.service";
 import {
   LeadService,
   findLeadByPhone,
   updateLeadInterest,
 } from "../services/lead.service";
 import { createAppointment } from "../services/appointment.service";
+import { getNextAvailableSlots } from "../services/slot.service";
 import { saveMessage } from "../services/message.service";
+import Business from "../models/Business";
+import { getIO } from "../socket";
 
-const faqEngine = new FAQEngineService();
 const leadService = new LeadService();
 
-const leadKeywords = [
-  "website",
-  "logo",
-  "branding",
-  "digital marketing",
-  "seo",
-  "google ads",
-  "meta ads",
-  "price",
-  "cost",
-  "quotation",
-  "consultation",
-  "interested",
-  "need service",
-];
-
 const appointmentKeywords = [
-  "call",
-  "consultation",
-  "meeting",
-  "appointment",
-  "schedule",
-  "discuss",
-  "talk",
+  "call", "consultation", "meeting", "appointment",
+  "schedule", "discuss", "talk", "book",
 ];
 
-export const verifyWebhook = (
-  req: Request,
-  res: Response
-): void => {
+async function buildSystemPrompt(businessId: string): Promise<string | null> {
+  const kb = await getKnowledgeBaseByBusiness(businessId);
+  if (!kb) return null;
+  return `
+You are an AI assistant for ${kb.companyName}.
+
+About: ${kb.companyDescription}
+
+Services: ${kb.services.join(", ")}
+
+FAQs:
+${kb.faqs.map((f) => `Q: ${f.question}\nA: ${f.answer}`).join("\n\n")}
+
+Sales Instructions: ${kb.salesInstructions}
+Appointment Instructions: ${kb.appointmentInstructions}
+Tone: ${kb.tone}
+
+Lead Qualification Questions: ${kb.leadQualificationQuestions?.join(", ")}
+Offers: ${kb.offers?.join(", ")}
+Objection Handling: ${kb.objectionHandling?.map((o) => `If "${o.objection}" → "${o.response}"`).join("; ")}
+
+Rules:
+- Reply in the same language the customer uses.
+- Keep replies short and conversational (under 120 words).
+- If the customer seems interested in booking or consulting, ask them to reply with "BOOK".
+- If you cannot help, say you will connect them with the team.
+`.trim();
+}
+
+export const verifyWebhook = (req: Request, res: Response): void => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
-  console.log("MODE:", mode);
-  console.log("TOKEN:", token);
-  console.log("ENV TOKEN:", process.env.WHATSAPP_VERIFY_TOKEN);
-
-  if (
-    mode === "subscribe" &&
-    token === process.env.WHATSAPP_VERIFY_TOKEN
-  ) {
+  if (mode === "subscribe" && token === process.env.WHATSAPP_VERIFY_TOKEN) {
     console.log("✅ Webhook Verified");
     res.status(200).send(challenge);
     return;
   }
-
   res.sendStatus(403);
 };
 
-export const receiveWebhook = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
+export const receiveWebhook = async (req: Request, res: Response): Promise<void> => {
   try {
-    console.log(JSON.stringify(req.body, null, 2));
-
-    const value =
-      req.body?.entry?.[0]?.changes?.[0]?.value;
+    const value = req.body?.entry?.[0]?.changes?.[0]?.value;
 
     if (!value?.messages?.length) {
-      console.log("STATUS EVENT - IGNORED");
       res.sendStatus(200);
       return;
     }
 
     const phone = value.messages[0].from;
+    const msgType: string = value.messages[0].type || "text";
+    const message: string =
+      value.messages[0].text?.body ||
+      (msgType !== "text" ? `[${msgType} message]` : "");
+    const contactName: string =
+      value.contacts?.[0]?.profile?.name || "WhatsApp Prospect";
 
-    const message = value.messages[0].text?.body;
-
-    console.log("PHONE:", phone);
-    console.log("MESSAGE:", message);
-
-    if (!phone || !message) {
+    if (!phone) {
       res.sendStatus(200);
       return;
     }
 
-    const businessId = "6a3263dbad9dcef582076cd1";
+    // Resolve businessId: slug → whatsapp number → newest business
+    const slug = req.params.businessSlug;
+    let businessId: string;
 
-    await saveMessage(businessId, phone, "incoming", message);
+    const slugStr = Array.isArray(slug) ? slug[0] : slug;
+    let business = slugStr
+      ? await Business.findOne({
+          businessName: { $regex: new RegExp(`^${slugStr.replace(/-/g, " ")}$`, "i") },
+        }).lean()
+      : null;
 
-    const lowerMessage = message.toLowerCase();
+    if (!business) {
+      // Match by the WhatsApp number that received this message
+      const displayPhone: string | undefined =
+        value.metadata?.display_phone_number;
+      if (displayPhone) {
+        const digits = displayPhone.replace(/\D/g, "");
+        const candidates = await Business.find().lean();
+        business =
+          candidates.find(
+            (b) => b.whatsappNumber.replace(/\D/g, "") === digits
+          ) ?? null;
+      }
+    }
 
-    const selectedSlotPattern =
-      /^(10:00 AM|11:00 AM|03:00 PM|04:00 PM)$/i;
-    const selectedSlot = message.trim().match(selectedSlotPattern);
+    if (!business) {
+      // Last resort: newest business in DB (matches frontend default sort)
+      business = await Business.findOne().sort({ createdAt: -1 }).lean();
+    }
 
-    console.log("RAW MESSAGE:", message);
-    console.log("SELECTED SLOT:", selectedSlot);
+    if (!business) { res.sendStatus(200); return; }
+    businessId = (business._id as any).toString();
 
-    const isLead = leadKeywords.some((kw) =>
-      lowerMessage.includes(kw)
-    );
+    if (message) {
+      const savedMsg = await saveMessage(businessId, phone, "incoming", message);
+      try {
+        getIO().to(`business:${businessId}`).emit("new:message", {
+          businessId,
+          phone,
+          message: savedMsg,
+          leadName: contactName,
+        });
+      } catch { /* socket not yet init in tests */ }
+    }
 
-    console.log("IS LEAD:", isLead);
+    const lowerMsg = message.toLowerCase().trim();
 
-    const wantsAppointment = appointmentKeywords.some((keyword) =>
-      lowerMessage.includes(keyword)
-    );
+    // ── STEP 1: Capture / update lead (always, for every message) ──
+    let lead = await findLeadByPhone(businessId, phone);
+    if (!lead) {
+      try {
+        lead = await leadService.createLead({
+          businessId,
+          name: contactName,
+          phone,
+          interest: message || undefined,
+          source: "WhatsApp",
+        });
+      } catch (err) {
+        console.error("Lead creation failed:", err);
+      }
+    } else {
+      try {
+        await updateLeadInterest(lead._id.toString(), message);
+      } catch (err) {
+        console.error("Lead update failed:", err);
+      }
+    }
 
-    console.log("WANTS APPOINTMENT:", wantsAppointment);
+    // ── STEP 2–5 only apply to real text messages ──
+    if (!message || msgType !== "text") {
+      res.sendStatus(200);
+      return;
+    }
 
-    // STEP 0 - Slot selected → book appointment
-    if (selectedSlot) {
-      console.log("BOOKING APPOINTMENT...");
-
-      console.log("FETCHING LEADS...");
-      const leads = await leadService.getLeads(businessId);
-      console.log("PHONE LOOKUP:", phone);
-      console.log("LEADS COUNT:", leads.length);
-      const normalizedPhone = phone.replace("+", "");
-      const lead = leads.find(
-        (l: any) => l.phone.replace("+", "") === normalizedPhone
-      );
-      console.log("FOUND LEAD:", lead);
-
+    // ── STEP 2: Slot confirmation (e.g. "10:00") ──
+    const slotPattern = /^\d{1,2}:\d{2}(\s*(am|pm))?$/i;
+    if (slotPattern.test(lowerMsg)) {
       if (lead) {
-        try {
-          await createAppointment({
-            businessId,
-            leadId: lead._id.toString(),
-            date: "2026-06-20",
-            time: selectedSlot[0],
-            notes: "WhatsApp Consultation",
-          });
+        const today = new Date().toISOString().split("T")[0];
+        await createAppointment({
+          businessId,
+          leadId: lead._id.toString(),
+          date: today,
+          time: message.trim(),
+          notes: "Booked via WhatsApp",
+        });
+        await leadService.updateLeadStatus(lead._id.toString(), "Appointment Booked");
 
-          await leadService.updateLeadStatus(
-            lead._id.toString(),
-            "Appointment Booked"
-          );
-
-          console.log("LEAD STATUS UPDATED → Appointment Booked");
-          console.log("APPOINTMENT CREATED");
-          console.log("SENDING CONFIRMATION...");
-
-          const confirmationMsg = `✅ Appointment Confirmed
-
-Date: 20-Jun-2026
-Time: ${selectedSlot[0]}
-
-Our team will contact you shortly.`;
-
-          console.log("OUTGOING:", confirmationMsg);
-          await saveMessage(businessId, phone, "outgoing", confirmationMsg);
-          const result = await sendWhatsAppMessage(phone, confirmationMsg);
-          console.log("MESSAGE SENT");
-
-          console.log("WHATSAPP RESPONSE:", result);
-          console.log("CONFIRMATION SENT");
-        } catch (error: any) {
-          console.log("=================================");
-          console.log("APPOINTMENT ERROR");
-          console.log("MESSAGE:", error?.message);
-          console.log("FULL:", error);
-          console.log("=================================");
-
-          const errorReply = "Unable to book appointment. Please try again.";
-          console.log("OUTGOING:", errorReply);
-          await saveMessage(businessId, phone, "outgoing", errorReply);
-          await sendWhatsAppMessage(phone, errorReply);
-          console.log("MESSAGE SENT");
-        }
-
+        const confirm = `✅ Appointment confirmed!\n\nTime: ${message.trim()}\nDate: ${today}\n\nOur team will contact you shortly. Thank you!`;
+        const confirmMsg = await saveMessage(businessId, phone, "outgoing", confirm);
+        try { getIO().to(`business:${businessId}`).emit("new:message", { businessId, phone, message: confirmMsg }); } catch {}
+        await sendWhatsAppMessage(phone, confirm);
         res.sendStatus(200);
         return;
       }
     }
 
-    // STEP 1 - Create Lead
-    if (isLead) {
-      try {
-        console.log("CREATING LEAD...");
-
-        const existingLead = await findLeadByPhone(businessId, phone);
-
-        console.log("EXISTING LEAD:", existingLead?._id);
-
-        if (!existingLead) {
-          await leadService.createLead({
-            businessId,
-            name: "WhatsApp Prospect",
-            phone,
-            interest: message,
-            source: "WhatsApp",
-          });
-
-          console.log("NEW LEAD CREATED");
-        } else {
-          await updateLeadInterest(
-            existingLead._id.toString(),
-            message
-          );
-
-          console.log("LEAD UPDATED");
-        }
-      } catch (error) {
-        console.log("Lead may already exist:", error);
-      }
-    }
-
-    // STEP 2 - Appointment Intent
-    console.log("REACHED APPOINTMENT CHECK");
-    console.log("MESSAGE:", message);
-    console.log("WANTS APPOINTMENT:", wantsAppointment);
-
+    // ── STEP 3: Appointment / booking intent ──
+    const wantsAppointment = lowerMsg === "book" || appointmentKeywords.some((kw) => lowerMsg.includes(kw));
     if (wantsAppointment) {
-      console.log("ENTERED APPOINTMENT BLOCK");
+      const today = new Date().toISOString().split("T")[0];
+      const slots = await getNextAvailableSlots(businessId, today);
+      const slotList = slots.length
+        ? slots.map((s, i) => `${i + 1}. ${s}`).join("\n")
+        : "No slots available today. Please contact us directly.";
 
-      try {
-        console.log("BEFORE SLOT SEND");
-
-        const slotMsg = `Available consultation slots:
-
-1. 10:00 AM
-2. 11:00 AM
-3. 03:00 PM
-4. 04:00 PM
-
-Reply with your preferred slot.`;
-
-        console.log("OUTGOING:", slotMsg);
-        await saveMessage(businessId, phone, "outgoing", slotMsg);
-        const result = await sendWhatsAppMessage(phone, slotMsg);
-        console.log("MESSAGE SENT");
-
-        console.log("WHATSAPP RESULT:", result);
-        console.log("SLOT MESSAGE SENT");
-      } catch (error: any) {
-        console.log(
-          "SLOT SEND ERROR:",
-          error?.response?.data || error
-        );
-      }
-
+      const slotMsg = `Here are today's available consultation slots:\n\n${slotList}\n\nReply with your preferred time (e.g. "10:00") to confirm.`;
+      const slotSaved = await saveMessage(businessId, phone, "outgoing", slotMsg);
+      try { getIO().to(`business:${businessId}`).emit("new:message", { businessId, phone, message: slotSaved }); } catch {}
+      await sendWhatsAppMessage(phone, slotMsg);
       res.sendStatus(200);
       return;
     }
 
-    // STEP 3 - FAQ Reply
-    const answer = await faqEngine.findAnswer(businessId, message);
+    // ── STEP 4: AI-powered reply ──
+    const systemPrompt = await buildSystemPrompt(businessId);
 
-    if (answer) {
-      console.log("OUTGOING:", answer);
-      await saveMessage(businessId, phone, "outgoing", answer);
-      await sendWhatsAppMessage(phone, answer);
-      console.log("MESSAGE SENT");
-    } else if (isLead) {
-      const leadReply = `Thank you for your interest.
-
-A consultation specialist will contact you shortly.
-
-Would you like to schedule a free consultation call?`;
-      console.log("OUTGOING:", leadReply);
-      await saveMessage(businessId, phone, "outgoing", leadReply);
-      await sendWhatsAppMessage(phone, leadReply);
-      console.log("MESSAGE SENT");
-    } else {
-      const defaultReply = `Thank you for contacting Advertoria.
-
-We provide:
-• Branding
-• Logo Design
-• Website Development
-• UI/UX Design
-• Digital Marketing
-
-Could you tell us more about your requirement?`;
-      console.log("OUTGOING:", defaultReply);
-      await saveMessage(businessId, phone, "outgoing", defaultReply);
-      await sendWhatsAppMessage(phone, defaultReply);
-      console.log("MESSAGE SENT");
+    if (systemPrompt) {
+      const reply = await generateReply(systemPrompt, message);
+      if (reply) {
+        const replySaved = await saveMessage(businessId, phone, "outgoing", reply);
+        try { getIO().to(`business:${businessId}`).emit("new:message", { businessId, phone, message: replySaved }); } catch {}
+        await sendWhatsAppMessage(phone, reply);
+        res.sendStatus(200);
+        return;
+      }
     }
 
+    // ── STEP 5: Fallback ──
+    const fallback = `Thank you for reaching out! Our team will get back to you shortly. Reply "BOOK" to schedule a free consultation.`;
+    const fallbackSaved = await saveMessage(businessId, phone, "outgoing", fallback);
+    try { getIO().to(`business:${businessId}`).emit("new:message", { businessId, phone, message: fallbackSaved }); } catch {}
+    await sendWhatsAppMessage(phone, fallback);
     res.sendStatus(200);
   } catch (error) {
+    console.error("Webhook error:", error);
     res.sendStatus(500);
   }
 };

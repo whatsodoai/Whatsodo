@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { registerUser, loginUser } from "../services/auth.service";
 import { generateToken } from "../utils/jwt";
 import { AuthRequest } from "../middleware/auth.middleware";
+import Business from "../models/Business";
 
 export const register = async (
   req: Request,
@@ -45,9 +46,12 @@ export const login = async (
       user.role
     );
 
+    const business = await Business.findOne({ ownerId: user._id }).sort({ createdAt: -1 }).lean();
+
     res.status(200).json({
       success: true,
       token,
+      businessId: business?._id ?? null,
       user: {
         id: user._id,
         name: user.name,

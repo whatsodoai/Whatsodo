@@ -13,7 +13,18 @@ export const saveMessage = async (
     phone,
     direction,
     message,
+    isRead: direction === "outgoing",
   });
+};
+
+export const markConversationRead = async (
+  businessId: string,
+  phone: string
+) => {
+  return Message.updateMany(
+    { businessId, phone, direction: "incoming", isRead: false },
+    { $set: { isRead: true } }
+  );
 };
 
 export const getConversation = async (

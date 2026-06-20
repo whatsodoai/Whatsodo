@@ -1,19 +1,24 @@
 import Business from "../models/Business";
 
 export const createBusiness = async (
-ownerId: string,
-businessName: string,
-industry: string,
-whatsappNumber: string
+  ownerId: string,
+  businessName: string,
+  industry: string,
+  whatsappNumber: string
 ) => {
-const business = await Business.create({
-ownerId,
-businessName,
-industry,
-whatsappNumber,
-});
+  const existing = await Business.findOne({ ownerId, businessName });
+  if (existing) {
+    throw new Error(`A business named "${businessName}" already exists.`);
+  }
 
-return business;
+  const business = await Business.create({
+    ownerId,
+    businessName,
+    industry,
+    whatsappNumber,
+  });
+
+  return business;
 };
 
 export const getBusinesses = async (ownerId: string) => {

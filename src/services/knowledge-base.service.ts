@@ -1,10 +1,12 @@
 import KnowledgeBase from "../models/KnowledgeBase";
 
-export const createKnowledgeBase =
-async (data: any) => {
-return await KnowledgeBase.create(
-data
-);
+export const createKnowledgeBase = async (data: any) => {
+  const { businessId, ...rest } = data;
+  return await KnowledgeBase.findOneAndUpdate(
+    { businessId },
+    { $set: rest },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
 };
 
 export const getKnowledgeBase = async (businessId: string) => {

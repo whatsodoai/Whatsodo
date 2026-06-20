@@ -7,14 +7,12 @@ import {
 
 const router = Router();
 
-router.get(
-  "/:businessSlug",
-  verifyWebhook
-);
+// Base route (no slug) — use this URL in Meta Developer Console
+router.get("/", verifyWebhook);
+router.post("/", receiveWebhook);
 
-router.post(
-  "/:businessSlug",
-  receiveWebhook
-);
+// Slug-based routes (legacy / multi-tenant)
+router.get("/:businessSlug", verifyWebhook);
+router.post("/:businessSlug", receiveWebhook);
 
 export default router;
