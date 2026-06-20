@@ -11,6 +11,13 @@ export const sendWhatsAppMessage = async (
     const accessToken =
       process.env.WHATSAPP_ACCESS_TOKEN;
 
+    if (!phoneNumberId || !accessToken) {
+      console.error(
+        "WHATSAPP API ERROR: missing WHATSAPP_PHONE_NUMBER_ID or WHATSAPP_ACCESS_TOKEN env var"
+      );
+      throw new Error("WhatsApp credentials are not configured");
+    }
+
     const url =
       `https://graph.facebook.com/v25.0/${phoneNumberId}/messages`;
 

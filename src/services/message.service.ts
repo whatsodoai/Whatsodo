@@ -4,7 +4,8 @@ export const saveMessage = async (
   businessId: string,
   phone: string,
   direction: "incoming" | "outgoing",
-  message: string
+  message: string,
+  wamid?: string
 ) => {
   console.log("MESSAGE SAVED:", direction, message);
 
@@ -14,7 +15,13 @@ export const saveMessage = async (
     direction,
     message,
     isRead: direction === "outgoing",
+    wamid,
   });
+};
+
+export const isDuplicateWamid = async (wamid: string): Promise<boolean> => {
+  const existing = await Message.findOne({ wamid }).lean();
+  return existing !== null;
 };
 
 export const markConversationRead = async (

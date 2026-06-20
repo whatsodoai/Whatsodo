@@ -23,6 +23,11 @@ const messageSchema = new Schema(
       type: Boolean,
       default: false,
     },
+    wamid: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
   },
   {
     timestamps: true,
