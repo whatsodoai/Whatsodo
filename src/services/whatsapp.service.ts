@@ -68,3 +68,67 @@ export const sendWhatsAppMessage = async (
     throw error;
   }
 };
+
+export interface WhatsAppTemplatePayload {
+  name: string;
+  language: string;
+  variables?: string[];
+}
+
+/**
+ * Sends an approved Meta template message — the only way to reach a
+ * customer outside Meta's 24-hour free-form reply window. The template
+ * must already exist/be approved in the business's Meta Business Manager;
+ * this just invokes it by name.
+ */
+export const sendWhatsAppTemplate = async (
+  to: string,
+  template: WhatsAppTemplatePayload,
+  credentials?: WhatsAppCredentials
+) => {
+  const phoneNumberId = credentials?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const accessToken = credentials?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN;
+
+  if (!phoneNumberId || !accessToken) {
+    throw new Error("WhatsApp credentials are not configured");
+  }
+
+  const components = template.variables?.length
+    ? [
+        {
+          type: "body",
+          parameters: template.variables.map((v) => ({ type: "text", text: v })),
+        },
+      ]
+    : [];
+
+  const url = `https://graph.facebook.com/v25.0/${phoneNumberId}/messages`;
+
+  try {
+    const response = await axios.post(
+      url,
+      {
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to,
+        type: "template",
+        template: {
+          name: template.name,
+          language: { code: template.language },
+          components,
+        },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    return response.data;
+  } catch (error: any) {
+    console.log("WHATSAPP TEMPLATE API ERROR:", error?.response?.data || error.message);
+    throw error;
+  }
+};

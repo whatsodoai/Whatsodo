@@ -248,3 +248,82 @@ export const removeMember = async (
     });
   }
 };
+
+export const addTemplate = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { name, language, bodyPreview, variableCount } = req.body;
+
+    if (!name || !language) {
+      res.status(400).json({ success: false, message: "name and language are required" });
+      return;
+    }
+    if (!(await isBusinessOwner(req.user!.userId, id as string))) {
+      res.status(403).json({ success: false, message: "Only the business owner can do this" });
+      return;
+    }
+
+    const business = await Business.findByIdAndUpdate(
+      id,
+      {
+        $push: {
+          whatsappTemplates: {
+            name,
+            language,
+            bodyPreview: bodyPreview || "",
+            variableCount: variableCount || 0,
+            createdAt: new Date(),
+          },
+        },
+      },
+      { new: true }
+    );
+
+    if (!business) {
+      res.status(404).json({ success: false, message: "Business not found" });
+      return;
+    }
+
+    res.status(201).json({ success: true, data: business.whatsappTemplates });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error instanceof Error ? error.message : "Failed to add template",
+    });
+  }
+};
+
+export const removeTemplate = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { id, templateName } = req.params;
+
+    if (!(await isBusinessOwner(req.user!.userId, id as string))) {
+      res.status(403).json({ success: false, message: "Only the business owner can do this" });
+      return;
+    }
+
+    const business = await Business.findByIdAndUpdate(
+      id,
+      { $pull: { whatsappTemplates: { name: templateName } } },
+      { new: true }
+    );
+
+    if (!business) {
+      res.status(404).json({ success: false, message: "Business not found" });
+      return;
+    }
+
+    res.json({ success: true, data: business.whatsappTemplates });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error instanceof Error ? error.message : "Failed to remove template",
+    });
+  }
+};

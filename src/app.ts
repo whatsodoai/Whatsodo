@@ -16,6 +16,7 @@ import dashboardRoutes from "./routes/dashboard.routes";
 import messageRoutes from "./routes/message.routes";
 import inboxRoutes from "./routes/inbox.routes";
 import analyticsRoutes from "./routes/analytics.routes";
+import campaignRoutes from "./routes/campaign.routes";
 
 const app = express();
 
@@ -36,6 +37,7 @@ app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/inbox", inboxRoutes);
 app.use("/api/analytics", analyticsRoutes);
+app.use("/api/campaigns", campaignRoutes);
 
 app.get("/test-whatsapp", async (_req, res) => {
   try {
