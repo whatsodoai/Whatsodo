@@ -78,7 +78,7 @@ export const search = async (
 
     const regex = new RegExp(q as string, "i");
     const leads = await Lead.find({
-      businessId,
+      businessId: businessId as string,
       $or: [
         { name: regex },
         { phone: regex },

@@ -51,7 +51,7 @@ export const markRead = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { phone } = req.params;
+    const phone = req.params.phone as string;
     const businessId = (req.query.businessId || req.body.businessId) as string;
 
     if (!businessId) {
