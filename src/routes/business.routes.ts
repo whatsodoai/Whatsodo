@@ -5,6 +5,7 @@ import {
   getOne,
   update,
   getWhatsAppDefaults,
+  connectWhatsAppEmbedded,
   addMember,
   removeMember,
   addTemplate,
@@ -20,6 +21,7 @@ router.get("/", protect, getAll);
 router.get("/whatsapp-defaults", protect, getWhatsAppDefaults);
 router.get("/:id", protect, getOne);
 router.patch("/:id", protect, update);
+router.post("/:id/whatsapp/connect", protect, connectWhatsAppEmbedded);
 router.post("/:id/members", protect, addMember);
 router.delete("/:id/members/:userId", protect, removeMember);
 router.post("/:id/templates", protect, addTemplate);

@@ -4,6 +4,12 @@ import { AuthRequest } from "../middleware/auth.middleware";
 import { createBusiness, getBusinesses } from "../services/business.service";
 import { isBusinessOwner, hasBusinessAccess } from "../utils/ownership";
 import { uploadMediaToMeta, createWhatsAppCarouselTemplate } from "../services/whatsapp.service";
+import {
+  exchangeCodeForToken,
+  subscribeAppToWaba,
+  getPhoneNumberDetails,
+} from "../services/meta-embedded-signup.service";
+import { env } from "../config/env";
 import Business from "../models/Business";
 import User from "../models/User";
 
@@ -140,6 +146,70 @@ export const update = async (
     res.status(500).json({
       success: false,
       message: error instanceof Error ? error.message : "Failed to update business",
+    });
+  }
+};
+
+/**
+ * Completes the WhatsApp Embedded Signup flow: exchanges the authorization
+ * code the frontend got from the Facebook JS SDK for an access token, best-
+ * effort subscribes this app to the WABA's webhooks and looks up the
+ * connected number's display info, then saves everything onto the
+ * business — same fields the manual credentials form already writes.
+ */
+export const connectWhatsAppEmbedded = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { code, wabaId, phoneNumberId } = req.body;
+
+    if (!code || !wabaId || !phoneNumberId) {
+      res.status(400).json({
+        success: false,
+        message: "code, wabaId and phoneNumberId are required",
+      });
+      return;
+    }
+
+    const accessToken = await exchangeCodeForToken(code);
+
+    const [, phoneDetails] = await Promise.all([
+      subscribeAppToWaba(wabaId, accessToken).catch((err) =>
+        console.error("Failed to subscribe app to WABA:", err?.response?.data || err.message)
+      ),
+      getPhoneNumberDetails(phoneNumberId, accessToken).catch((err) => {
+        console.error("Failed to fetch phone number details:", err?.response?.data || err.message);
+        return null;
+      }),
+    ]);
+
+    const business = await Business.findOneAndUpdate(
+      { _id: id, ownerId: req.user!.userId },
+      {
+        whatsappAccessToken: accessToken,
+        whatsappPhoneNumberId: phoneNumberId,
+        whatsappBusinessAccountId: wabaId,
+        whatsappAppId: env.META_APP_ID,
+        ...(phoneDetails?.display_phone_number && {
+          whatsappNumber: phoneDetails.display_phone_number,
+        }),
+      },
+      { new: true }
+    );
+
+    if (!business) {
+      res.status(404).json({ success: false, message: "Business not found" });
+      return;
+    }
+
+    res.json({ success: true, data: business });
+  } catch (error: any) {
+    console.error("Embedded signup connect failed:", error?.response?.data || error.message);
+    res.status(500).json({
+      success: false,
+      message: "Failed to connect WhatsApp account. Please try again.",
     });
   }
 };
