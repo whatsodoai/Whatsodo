@@ -41,6 +41,9 @@ export interface IBusiness extends Document {
   whatsappVerifyToken?: string;
   whatsappBusinessAccountId?: string;
   whatsappAppId?: string;
+  metaUserId?: string;
+  whatsappConnectedAt?: Date;
+  whatsappDeauthorizedAt?: Date;
   members: IBusinessMember[];
   whatsappTemplates: IWhatsAppTemplate[];
 }
@@ -82,6 +85,15 @@ const businessSchema = new Schema<IBusiness>(
     },
     whatsappAppId: {
       type: String,
+    },
+    metaUserId: {
+      type: String,
+    },
+    whatsappConnectedAt: {
+      type: Date,
+    },
+    whatsappDeauthorizedAt: {
+      type: Date,
     },
     members: [
       {

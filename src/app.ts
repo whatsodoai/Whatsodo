@@ -18,11 +18,14 @@ import inboxRoutes from "./routes/inbox.routes";
 import analyticsRoutes from "./routes/analytics.routes";
 import campaignRoutes from "./routes/campaign.routes";
 import uploadRoutes from "./routes/upload.routes";
+import metaComplianceRoutes from "./routes/meta-compliance.routes";
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true })); // Meta posts deauthorize/data-deletion callbacks as form-encoded `signed_request`
+app.use("/api/meta", metaComplianceRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/business", businessRoutes);
 app.use("/api/knowledge-base", knowledgeBaseRoutes);

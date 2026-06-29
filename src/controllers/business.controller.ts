@@ -8,6 +8,7 @@ import {
   exchangeCodeForToken,
   subscribeAppToWaba,
   getPhoneNumberDetails,
+  getMetaUserId,
 } from "../services/meta-embedded-signup.service";
 import { env } from "../config/env";
 import Business from "../models/Business";
@@ -175,7 +176,7 @@ export const connectWhatsAppEmbedded = async (
 
     const accessToken = await exchangeCodeForToken(code);
 
-    const [, phoneDetails] = await Promise.all([
+    const [, phoneDetails, metaUserId] = await Promise.all([
       subscribeAppToWaba(wabaId, accessToken).catch((err) =>
         console.error("Failed to subscribe app to WABA:", err?.response?.data || err.message)
       ),
@@ -183,6 +184,7 @@ export const connectWhatsAppEmbedded = async (
         console.error("Failed to fetch phone number details:", err?.response?.data || err.message);
         return null;
       }),
+      getMetaUserId(accessToken),
     ]);
 
     const business = await Business.findOneAndUpdate(
@@ -192,6 +194,8 @@ export const connectWhatsAppEmbedded = async (
         whatsappPhoneNumberId: phoneNumberId,
         whatsappBusinessAccountId: wabaId,
         whatsappAppId: env.META_APP_ID,
+        whatsappConnectedAt: new Date(),
+        ...(metaUserId && { metaUserId }),
         ...(phoneDetails?.display_phone_number && {
           whatsappNumber: phoneDetails.display_phone_number,
         }),

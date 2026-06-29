@@ -40,6 +40,24 @@ export const subscribeAppToWaba = async (
   );
 };
 
+/**
+ * Looks up the Facebook user_id behind the access token, so it can be
+ * stored on the Business and matched later against the `user_id` field in
+ * Meta's deauthorize / data-deletion signed_request callbacks.
+ */
+export const getMetaUserId = async (accessToken: string): Promise<string | null> => {
+  try {
+    const response = await axios.get(`https://graph.facebook.com/${GRAPH_VERSION}/me`, {
+      params: { fields: "id" },
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    return response.data.id ?? null;
+  } catch (err) {
+    console.error("Failed to fetch Meta user id:", err);
+    return null;
+  }
+};
+
 export interface PhoneNumberDetails {
   display_phone_number?: string;
   verified_name?: string;
