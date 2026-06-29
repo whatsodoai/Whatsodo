@@ -20,19 +20,14 @@ export const sendWhatsAppMessage = async (
       message = message.slice(0, WHATSAPP_TEXT_LIMIT - 1) + "…";
     }
 
-    // Per-business credentials (Settings page) take priority; fall back to
-    // the global env vars so businesses that haven't configured their own
-    // WhatsApp account yet keep working.
-    const phoneNumberId =
-      credentials?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
-
-    const accessToken =
-      credentials?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN;
+    // Each business must supply its own credentials — there is no shared
+    // fallback, since that would silently route one business's messages
+    // through another's connected WhatsApp number.
+    const phoneNumberId = credentials?.phoneNumberId;
+    const accessToken = credentials?.accessToken;
 
     if (!phoneNumberId || !accessToken) {
-      console.error(
-        "WHATSAPP API ERROR: missing WHATSAPP_PHONE_NUMBER_ID or WHATSAPP_ACCESS_TOKEN env var"
-      );
+      console.error("WHATSAPP API ERROR: this business has no WhatsApp credentials configured");
       throw new Error("WhatsApp credentials are not configured");
     }
 
@@ -81,10 +76,8 @@ export const sendWhatsAppMedia = async (
   options?: WhatsAppMediaOptions,
   credentials?: WhatsAppCredentials
 ) => {
-  const phoneNumberId =
-    credentials?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
-  const accessToken =
-    credentials?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN;
+  const phoneNumberId = credentials?.phoneNumberId;
+  const accessToken = credentials?.accessToken;
 
   if (!phoneNumberId || !accessToken) {
     throw new Error("WhatsApp credentials are not configured");
@@ -140,8 +133,8 @@ export const sendWhatsAppTemplate = async (
   template: WhatsAppTemplatePayload,
   credentials?: WhatsAppCredentials
 ) => {
-  const phoneNumberId = credentials?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
-  const accessToken = credentials?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN;
+  const phoneNumberId = credentials?.phoneNumberId;
+  const accessToken = credentials?.accessToken;
 
   if (!phoneNumberId || !accessToken) {
     throw new Error("WhatsApp credentials are not configured");

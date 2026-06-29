@@ -43,9 +43,9 @@ export const getWhatsAppDefaults = async (
       success: true,
       data: {
         webhookUrl: `https://whatsodo.onrender.com/api/webhook/${slugify(business.businessName)}`,
-        verifyToken: business.whatsappVerifyToken || process.env.WHATSAPP_VERIFY_TOKEN || "",
-        phoneNumberId: business.whatsappPhoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || "",
-        hasAccessToken: !!(business.whatsappAccessToken || process.env.WHATSAPP_ACCESS_TOKEN),
+        verifyToken: business.whatsappVerifyToken || "",
+        phoneNumberId: business.whatsappPhoneNumberId || "",
+        hasAccessToken: !!business.whatsappAccessToken,
       },
     });
   } catch (error) {
@@ -414,7 +414,7 @@ export const addCarouselTemplate = async (
 
     const wabaId = business.whatsappBusinessAccountId;
     const appId = business.whatsappAppId;
-    const accessToken = business.whatsappAccessToken || process.env.WHATSAPP_ACCESS_TOKEN;
+    const accessToken = business.whatsappAccessToken;
 
     if (!wabaId || !appId || !accessToken) {
       res.status(400).json({
