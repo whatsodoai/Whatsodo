@@ -1,9 +1,25 @@
 import { Request, Response } from "express";
 import crypto from "crypto";
 import { verifySignedRequest } from "../utils/meta-signed-request";
+import { env } from "../config/env";
 import Business from "../models/Business";
 
 const STATUS_BASE_URL = process.env.FRONTEND_URL || "http://localhost:3000";
+
+/**
+ * Public endpoint — returns the Meta App ID and Embedded Signup Config ID
+ * so the frontend can initialize the FB SDK without needing NEXT_PUBLIC_
+ * environment variables set in every deployment target.
+ */
+export const getAppConfig = (_req: Request, res: Response): void => {
+  res.json({
+    success: true,
+    data: {
+      appId: env.META_APP_ID,
+      configId: env.META_CONFIG_ID,
+    },
+  });
+};
 
 /**
  * Meta calls this when a business owner revokes Whatsodo's access from
