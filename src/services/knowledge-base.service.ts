@@ -1,4 +1,5 @@
 import KnowledgeBase from "../models/KnowledgeBase";
+import { IAiEmployee } from "../models/AiEmployee";
 
 export const createKnowledgeBase = async (data: any) => {
   const { businessId, ...rest } = data;
@@ -93,17 +94,32 @@ export const buildKnowledgeBaseReply = async (
 
 /**
  * System prompt for the LLM, grounded in this business's KnowledgeBase.
- * Kept under WhatsApp's 4096-char message limit by instructing the model
- * to stay short — sendWhatsAppMessage also truncates as a hard backstop.
+ * Optionally incorporates an AI Employee's persona, role, and instructions.
+ * Kept under WhatsApp's 4096-char message limit — sendWhatsAppMessage also truncates.
  */
 export const buildAISystemPrompt = async (
-  businessId: string
+  businessId: string,
+  aiEmployee?: IAiEmployee | null
 ): Promise<string | null> => {
   const kb = await getKnowledgeBaseByBusiness(businessId);
   if (!kb) return null;
 
+  const employeeName = aiEmployee?.name || "Assistant";
+  const employeeRole = aiEmployee?.role || "AI Customer Support Executive";
+  const personality = aiEmployee?.personality || "Professional and friendly";
+  const language = aiEmployee?.language || "English";
+  const workingInstructions = aiEmployee?.workingInstructions?.trim() || "";
+  const escalationRules = aiEmployee?.escalationRules?.trim() || "";
+  const responsibilities = aiEmployee?.responsibilities?.length
+    ? aiEmployee.responsibilities.map((r) => `• ${r}`).join("\n")
+    : "";
+
   return `
-You are a WhatsApp customer-support assistant for ${kb.companyName}.
+You are ${employeeName}, ${employeeRole} for ${kb.companyName}.
+
+Personality: ${personality}
+Primary language: ${language}
+${responsibilities ? `\nYour responsibilities:\n${responsibilities}` : ""}
 
 About the business: ${kb.companyDescription}
 
@@ -114,13 +130,16 @@ ${kb.faqs?.map((f) => `Q: ${f.question}\nA: ${f.answer}`).join("\n\n")}
 
 Sales instructions: ${kb.salesInstructions}
 Appointment instructions: ${kb.appointmentInstructions}
-Tone: ${kb.tone || "Professional"}
+Tone: ${kb.tone || personality}
 
 Offers: ${kb.offers?.join(", ")}
 Objection handling: ${kb.objectionHandling?.map((o) => `If "${o.objection}" → "${o.response}"`).join("; ")}
+${workingInstructions ? `\nAdditional working instructions:\n${workingInstructions}` : ""}
+${escalationRules ? `\nEscalation rules:\n${escalationRules}` : ""}
 
 Rules:
-- Reply in the same language the customer uses.
+- You are ${employeeName}. Always introduce yourself by name if asked.
+- Reply in the same language the customer uses (default: ${language}).
 - Keep replies under 300 characters — this is WhatsApp, not email.
 - Only answer using the information above. If you don't know something, say you'll connect them with the team — never invent facts about the business.
 - If the customer wants to book or consult, ask them to reply "BOOK".

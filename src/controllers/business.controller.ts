@@ -9,6 +9,10 @@ import {
   subscribeAppToWaba,
   getPhoneNumberDetails,
   getMetaUserId,
+  verifyCoexistenceOnboarding,
+  initiateContactsSync,
+  initiateHistorySync,
+  subscribeCoexistenceWebhooks,
 } from "../services/meta-embedded-signup.service";
 import { env } from "../config/env";
 import Business from "../models/Business";
@@ -152,11 +156,14 @@ export const update = async (
 };
 
 /**
- * Completes the WhatsApp Embedded Signup flow: exchanges the authorization
- * code the frontend got from the Facebook JS SDK for an access token, best-
- * effort subscribes this app to the WABA's webhooks and looks up the
- * connected number's display info, then saves everything onto the
- * business — same fields the manual credentials form already writes.
+ * Completes the WhatsApp Embedded Signup flow. Supports two modes:
+ * - isCoexistence=true: links an existing WhatsApp Business App number
+ *   (keeps it active in the app while enabling Cloud API simultaneously).
+ * - isCoexistence=false (default): standard Cloud API number registration.
+ *
+ * For coexistence mode, also subscribes to the extra webhook fields required
+ * by Meta (history, smb_app_state_sync, smb_message_echoes) and kicks off
+ * contacts + history sync immediately after onboarding.
  */
 export const connectWhatsAppEmbedded = async (
   req: AuthRequest,
@@ -164,7 +171,7 @@ export const connectWhatsAppEmbedded = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
-    const { code, wabaId, phoneNumberId } = req.body;
+    const { code, wabaId, phoneNumberId, isCoexistence = false } = req.body;
 
     if (!code || !wabaId || !phoneNumberId) {
       res.status(400).json({
@@ -176,16 +183,34 @@ export const connectWhatsAppEmbedded = async (
 
     const accessToken = await exchangeCodeForToken(code);
 
-    const [, phoneDetails, metaUserId] = await Promise.all([
+    // For coexistence, subscribe to extra webhook fields before anything else
+    if (isCoexistence) {
+      subscribeCoexistenceWebhooks(wabaId, accessToken).catch((err) =>
+        console.error("Failed to subscribe coexistence webhooks:", err?.response?.data || err.message)
+      );
+    } else {
       subscribeAppToWaba(wabaId, accessToken).catch((err) =>
         console.error("Failed to subscribe app to WABA:", err?.response?.data || err.message)
-      ),
+      );
+    }
+
+    const [phoneDetails, metaUserId] = await Promise.all([
       getPhoneNumberDetails(phoneNumberId, accessToken).catch((err) => {
         console.error("Failed to fetch phone number details:", err?.response?.data || err.message);
         return null;
       }),
       getMetaUserId(accessToken),
     ]);
+
+    const coexistenceUpdate = isCoexistence
+      ? {
+          isCoexistence: true,
+          coexistenceStatus: "connected" as const,
+          historyImported: false,
+          contactsSynced: false,
+          lastSyncAt: new Date(),
+        }
+      : { isCoexistence: false };
 
     const business = await Business.findOneAndUpdate(
       { _id: id, ownerId: req.user!.userId },
@@ -199,6 +224,7 @@ export const connectWhatsAppEmbedded = async (
         ...(phoneDetails?.display_phone_number && {
           whatsappNumber: phoneDetails.display_phone_number,
         }),
+        ...coexistenceUpdate,
       },
       { new: true }
     );
@@ -208,6 +234,29 @@ export const connectWhatsAppEmbedded = async (
       return;
     }
 
+    // For coexistence: verify the link succeeded then kick off background syncs.
+    // These are fire-and-forget — the initial connect succeeds regardless.
+    if (isCoexistence) {
+      verifyCoexistenceOnboarding(phoneNumberId, accessToken)
+        .then(({ isOnBizApp, isCloudApi }) => {
+          if (!isOnBizApp || !isCloudApi) {
+            console.warn(`Coexistence verification incomplete for ${phoneNumberId}: is_on_biz_app=${isOnBizApp} platform_type_is_cloud=${isCloudApi}`);
+          }
+        })
+        .catch((err) => console.error("Coexistence verification error:", err));
+
+      // Kick off contact and history syncs; webhooks will notify us as data arrives
+      initiateContactsSync(phoneNumberId, accessToken)
+        .then(() =>
+          Business.findByIdAndUpdate(id, { coexistenceStatus: "syncing" })
+        )
+        .catch((err) => console.error("Contacts sync initiation failed:", err));
+
+      initiateHistorySync(phoneNumberId, accessToken).catch((err) =>
+        console.error("History sync initiation failed:", err)
+      );
+    }
+
     res.json({ success: true, data: business });
   } catch (error: any) {
     console.error("Embedded signup connect failed:", error?.response?.data || error.message);
@@ -215,6 +264,125 @@ export const connectWhatsAppEmbedded = async (
       success: false,
       message: "Failed to connect WhatsApp account. Please try again.",
     });
+  }
+};
+
+/**
+ * Returns the current WhatsApp connection health for a business,
+ * including coexistence mode details.
+ */
+export const getConnectionHealth = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    if (!(await hasBusinessAccess(req.user!.userId, id as string))) {
+      res.status(403).json({ success: false, message: "Not authorized for this business" });
+      return;
+    }
+
+    const business = await Business.findById(id).lean();
+    if (!business) {
+      res.status(404).json({ success: false, message: "Business not found" });
+      return;
+    }
+
+    res.json({
+      success: true,
+      data: {
+        connected: !!business.whatsappAccessToken,
+        mode: business.isCoexistence ? "coexistence" : "cloud_api",
+        coexistenceStatus: business.coexistenceStatus ?? null,
+        historyImported: business.historyImported ?? false,
+        contactsSynced: business.contactsSynced ?? false,
+        lastSyncAt: business.lastSyncAt ?? null,
+        disconnectReason: business.disconnectReason ?? null,
+        messagingLimit: business.messagingLimit ?? null,
+        qualityRating: business.qualityRating ?? null,
+        phoneNumber: business.whatsappNumber,
+        connectedAt: business.whatsappConnectedAt ?? null,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Failed to fetch connection health" });
+  }
+};
+
+/**
+ * Manually triggers a contacts re-sync from the WhatsApp Business App.
+ */
+export const triggerContactsSync = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    if (!(await isBusinessOwner(req.user!.userId, id as string))) {
+      res.status(403).json({ success: false, message: "Only the business owner can do this" });
+      return;
+    }
+
+    const business = await Business.findById(id).lean();
+    if (!business) {
+      res.status(404).json({ success: false, message: "Business not found" });
+      return;
+    }
+    if (!business.isCoexistence || !business.whatsappPhoneNumberId || !business.whatsappAccessToken) {
+      res.status(400).json({ success: false, message: "Coexistence mode not active for this business" });
+      return;
+    }
+
+    const requestId = await initiateContactsSync(
+      business.whatsappPhoneNumberId,
+      business.whatsappAccessToken
+    );
+
+    if (requestId) {
+      await Business.findByIdAndUpdate(id, { coexistenceStatus: "syncing", lastSyncAt: new Date() });
+    }
+
+    res.json({ success: true, data: { requestId } });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Failed to trigger contacts sync" });
+  }
+};
+
+/**
+ * Manually triggers a history re-sync from the WhatsApp Business App.
+ */
+export const triggerHistorySync = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    if (!(await isBusinessOwner(req.user!.userId, id as string))) {
+      res.status(403).json({ success: false, message: "Only the business owner can do this" });
+      return;
+    }
+
+    const business = await Business.findById(id).lean();
+    if (!business) {
+      res.status(404).json({ success: false, message: "Business not found" });
+      return;
+    }
+    if (!business.isCoexistence || !business.whatsappPhoneNumberId || !business.whatsappAccessToken) {
+      res.status(400).json({ success: false, message: "Coexistence mode not active for this business" });
+      return;
+    }
+
+    const requestId = await initiateHistorySync(
+      business.whatsappPhoneNumberId,
+      business.whatsappAccessToken
+    );
+
+    res.json({ success: true, data: { requestId } });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Failed to trigger history sync" });
   }
 };
 

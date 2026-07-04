@@ -82,3 +82,93 @@ export const getPhoneNumberDetails = async (
 
   return response.data;
 };
+
+export interface CoexistenceVerification {
+  isOnBizApp: boolean;
+  isCloudApi: boolean;
+}
+
+/**
+ * Verifies that the coexistence onboarding completed successfully by checking
+ * is_on_biz_app === true and platform_type === "CLOUD_API" on the phone number.
+ */
+export const verifyCoexistenceOnboarding = async (
+  phoneNumberId: string,
+  accessToken: string
+): Promise<CoexistenceVerification> => {
+  try {
+    const response = await axios.get(
+      `https://graph.facebook.com/${GRAPH_VERSION}/${phoneNumberId}`,
+      {
+        params: { fields: "is_on_biz_app,platform_type" },
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+    return {
+      isOnBizApp: response.data.is_on_biz_app === true,
+      isCloudApi: response.data.platform_type === "CLOUD_API",
+    };
+  } catch (err) {
+    console.error("Failed to verify coexistence onboarding:", err);
+    return { isOnBizApp: false, isCloudApi: false };
+  }
+};
+
+/**
+ * Initiates contact synchronization from the WhatsApp Business App.
+ * Triggers smb_app_state_sync webhook events describing existing contacts.
+ */
+export const initiateContactsSync = async (
+  phoneNumberId: string,
+  accessToken: string
+): Promise<string | null> => {
+  try {
+    const response = await axios.post(
+      `https://graph.facebook.com/${GRAPH_VERSION}/${phoneNumberId}/smb_app_data`,
+      { sync_type: "smb_app_state_sync" },
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    return response.data.request_id ?? null;
+  } catch (err: any) {
+    console.error("Failed to initiate contacts sync:", err?.response?.data || err.message);
+    return null;
+  }
+};
+
+/**
+ * Initiates message history synchronization from the WhatsApp Business App.
+ * Triggers history webhook events. Must be called within 24 hours of onboarding.
+ */
+export const initiateHistorySync = async (
+  phoneNumberId: string,
+  accessToken: string
+): Promise<string | null> => {
+  try {
+    const response = await axios.post(
+      `https://graph.facebook.com/${GRAPH_VERSION}/${phoneNumberId}/smb_app_data`,
+      { sync_type: "history" },
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    return response.data.request_id ?? null;
+  } catch (err: any) {
+    console.error("Failed to initiate history sync:", err?.response?.data || err.message);
+    return null;
+  }
+};
+
+/**
+ * Subscribes the app to coexistence-required WABA webhook fields:
+ * history, smb_app_state_sync, and smb_message_echoes.
+ */
+export const subscribeCoexistenceWebhooks = async (
+  wabaId: string,
+  accessToken: string
+): Promise<void> => {
+  await axios.post(
+    `https://graph.facebook.com/${GRAPH_VERSION}/${wabaId}/subscribed_apps`,
+    {
+      subscribed_fields: ["messages", "history", "smb_app_state_sync", "smb_message_echoes"],
+    },
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+};

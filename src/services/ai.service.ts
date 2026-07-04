@@ -12,7 +12,7 @@ export const generateReply = async (
 ): Promise<string | null> => {
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4o",
       messages: [
         { role: "system", content: systemPrompt },
         ...history,
@@ -44,7 +44,7 @@ export const scoreLeadIntent = async (history: ChatTurn[]): Promise<LeadIntent |
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4o",
       messages: [
         {
           role: "system",

@@ -18,6 +18,7 @@ import analyticsRoutes from "./routes/analytics.routes";
 import campaignRoutes from "./routes/campaign.routes";
 import uploadRoutes from "./routes/upload.routes";
 import metaComplianceRoutes from "./routes/meta-compliance.routes";
+import aiEmployeeRoutes from "./routes/ai-employee.routes";
 
 const app = express();
 
@@ -42,6 +43,7 @@ app.use("/api/inbox", inboxRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/campaigns", campaignRoutes);
 app.use("/api/uploads", uploadRoutes);
+app.use("/api/ai-employees", aiEmployeeRoutes);
 
 app.get("/", (_req, res) => {
   res.status(200).json({

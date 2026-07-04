@@ -11,6 +11,7 @@ import { createAppointment } from "../services/appointment.service";
 import { getNextAvailableSlots } from "../services/slot.service";
 import { saveMessage, isDuplicateWamid, getConversation } from "../services/message.service";
 import Business from "../models/Business";
+import AiEmployee from "../models/AiEmployee";
 import Lead from "../models/Lead";
 import { getIO } from "../socket";
 
@@ -55,10 +56,55 @@ export const verifyWebhook = async (req: Request, res: Response): Promise<void> 
 
 export const receiveWebhook = async (req: Request, res: Response): Promise<void> => {
   try {
-    const value = req.body?.entry?.[0]?.changes?.[0]?.value;
+    const entry = req.body?.entry?.[0];
+    const change = entry?.changes?.[0];
+    const field: string = change?.field ?? "messages";
+    const value = change?.value;
 
-    if (!value?.messages?.length) {
+    if (!value) {
       res.sendStatus(200);
+      return;
+    }
+
+    // Ack Meta immediately — processing is async
+    res.sendStatus(200);
+
+    const slug = req.params.businessSlug;
+
+    // ── Coexistence: messages echoed from the WhatsApp Business App ──────────
+    if (field === "smb_message_echoes") {
+      processBusinessAppEcho(value, slug).catch((err) =>
+        console.error("smb_message_echoes processing error:", err)
+      );
+      return;
+    }
+
+    // ── Coexistence: chat history sync chunks ─────────────────────────────────
+    if (field === "history") {
+      processHistoryWebhook(value, slug).catch((err) =>
+        console.error("history webhook processing error:", err)
+      );
+      return;
+    }
+
+    // ── Coexistence: contact state sync ───────────────────────────────────────
+    if (field === "smb_app_state_sync") {
+      processContactsSync(value, slug).catch((err) =>
+        console.error("smb_app_state_sync processing error:", err)
+      );
+      return;
+    }
+
+    // ── Account status events (disconnect / reconnect) ────────────────────────
+    if (field === "account_update" || value?.account_disconnection_info || value?.disconnection_info) {
+      processAccountUpdate(value, slug).catch((err) =>
+        console.error("account_update processing error:", err)
+      );
+      return;
+    }
+
+    // ── Standard incoming customer messages ───────────────────────────────────
+    if (!value?.messages?.length) {
       return;
     }
 
@@ -66,16 +112,10 @@ export const receiveWebhook = async (req: Request, res: Response): Promise<void>
 
     if (wamid && (await isDuplicateWamid(wamid))) {
       console.log("Duplicate webhook delivery ignored:", wamid);
-      res.sendStatus(200);
       return;
     }
 
-    // Ack Meta immediately — AI reply + WhatsApp send can take several
-    // seconds, and if Meta doesn't get a fast 200 it retries the whole
-    // webhook, which used to reprocess the same message multiple times.
-    res.sendStatus(200);
-
-    processIncomingMessage(value, req.params.businessSlug, wamid).catch((error) => {
+    processIncomingMessage(value, slug, wamid).catch((error) => {
       console.error("Webhook processing error:", error);
     });
   } catch (error) {
@@ -230,7 +270,8 @@ async function processIncomingMessage(
   // ── STEP 4: AI reply grounded in the knowledge base, with a rule-based
   //    fallback if the AI call fails (quota, outage, etc.) so the bot
   //    never goes silent. ──
-  const systemPrompt = await buildAISystemPrompt(businessId);
+  const activeEmployee = await AiEmployee.findOne({ businessId, isActive: true }).lean();
+  const systemPrompt = await buildAISystemPrompt(businessId, activeEmployee as any);
   let reply: string | null = null;
 
   if (systemPrompt) {
@@ -254,4 +295,147 @@ async function processIncomingMessage(
   const fallbackSaved = await saveMessage(businessId, phone, "outgoing", fallback);
   try { getIO().to(`business:${businessId}`).emit("new:message", { businessId, phone, message: fallbackSaved }); } catch {}
   await sendWhatsAppMessage(phone, fallback, waCreds);
+}
+
+// ── Coexistence: messages sent from the WhatsApp Business App ───────────────
+// Mirror these to the inbox as outgoing messages. AI must not reply since
+// a human agent already replied from the mobile app.
+async function processBusinessAppEcho(
+  value: any,
+  slug: string | string[] | undefined
+): Promise<void> {
+  if (!value?.messages?.length) return;
+
+  const message = value.messages[0];
+  // Echo messages have the business number as `from`; the recipient is `to`
+  const customerPhone: string | undefined = message.to ?? value.contacts?.[0]?.wa_id;
+  const text: string =
+    message.text?.body || (message.type !== "text" ? `[${message.type} message]` : "");
+
+  if (!customerPhone || !text) return;
+
+  let business = await resolveBusinessBySlug(slug);
+  if (!business) {
+    const displayPhone: string | undefined = value.metadata?.display_phone_number;
+    if (displayPhone) {
+      const digits = displayPhone.replace(/\D/g, "");
+      const candidates = await Business.find().lean();
+      business = candidates.find((b) => b.whatsappNumber.replace(/\D/g, "") === digits) ?? null;
+    }
+  }
+  if (!business) return;
+
+  const businessId = (business._id as any).toString();
+  const savedMsg = await saveMessage(businessId, customerPhone, "outgoing", text, message.id);
+
+  try {
+    getIO().to(`business:${businessId}`).emit("new:message", {
+      businessId,
+      phone: customerPhone,
+      message: savedMsg,
+      source: "business_app",
+    });
+  } catch { /* socket not ready */ }
+}
+
+// ── Coexistence: chat history sync webhook ────────────────────────────────────
+// Meta delivers history in chunks with a progress percentage. When progress
+// reaches 100% (or no more chunks arrive), mark history as imported.
+async function processHistoryWebhook(
+  value: any,
+  slug: string | string[] | undefined
+): Promise<void> {
+  let business = await resolveBusinessBySlug(slug);
+  if (!business) {
+    const displayPhone: string | undefined = value?.metadata?.display_phone_number;
+    if (displayPhone) {
+      const digits = displayPhone.replace(/\D/g, "");
+      const candidates = await Business.find().lean();
+      business = candidates.find((b) => b.whatsappNumber.replace(/\D/g, "") === digits) ?? null;
+    }
+  }
+  if (!business) return;
+
+  const businessId = (business._id as any).toString();
+  const progress: number = value?.progress ?? 0;
+
+  // Save each historical message chunk to the inbox
+  const messages: any[] = value?.messages ?? [];
+  for (const msg of messages) {
+    const phone: string | undefined = msg.from || msg.to;
+    const direction = msg.from === business.whatsappNumber?.replace(/\D/g, "") ? "outgoing" : "incoming";
+    const text: string = msg.text?.body || (msg.type !== "text" ? `[${msg.type}]` : "");
+    if (phone && text) {
+      await saveMessage(businessId, phone, direction, text, msg.id).catch(() => {});
+    }
+  }
+
+  if (progress >= 100) {
+    await Business.findByIdAndUpdate(businessId, {
+      historyImported: true,
+      coexistenceStatus: "connected",
+      lastSyncAt: new Date(),
+    });
+    console.log(`✅ History import complete for business ${businessId}`);
+  }
+}
+
+// ── Coexistence: contact state sync webhook ───────────────────────────────────
+// Updates the contactsSynced flag once we receive the initial state sync.
+async function processContactsSync(
+  value: any,
+  slug: string | string[] | undefined
+): Promise<void> {
+  let business = await resolveBusinessBySlug(slug);
+  if (!business) {
+    const displayPhone: string | undefined = value?.metadata?.display_phone_number;
+    if (displayPhone) {
+      const digits = displayPhone.replace(/\D/g, "");
+      const candidates = await Business.find().lean();
+      business = candidates.find((b) => b.whatsappNumber.replace(/\D/g, "") === digits) ?? null;
+    }
+  }
+  if (!business) return;
+
+  const businessId = (business._id as any).toString();
+  await Business.findByIdAndUpdate(businessId, {
+    contactsSynced: true,
+    coexistenceStatus: "connected",
+    lastSyncAt: new Date(),
+  });
+}
+
+// ── Account update: disconnect / reconnect ────────────────────────────────────
+async function processAccountUpdate(
+  value: any,
+  slug: string | string[] | undefined
+): Promise<void> {
+  let business = await resolveBusinessBySlug(slug);
+  if (!business) {
+    const displayPhone: string | undefined = value?.metadata?.display_phone_number;
+    if (displayPhone) {
+      const digits = displayPhone.replace(/\D/g, "");
+      const candidates = await Business.find().lean();
+      business = candidates.find((b) => b.whatsappNumber.replace(/\D/g, "") === digits) ?? null;
+    }
+  }
+  if (!business) return;
+
+  const businessId = (business._id as any).toString();
+  const disconnectionInfo = value?.disconnection_info ?? value?.account_disconnection_info;
+
+  if (disconnectionInfo) {
+    const reason: string = disconnectionInfo.reason ?? "UNKNOWN";
+    await Business.findByIdAndUpdate(businessId, {
+      coexistenceStatus: "disconnected",
+      disconnectReason: reason,
+    });
+    console.warn(`⚠️  Business ${businessId} coexistence disconnected: ${reason}`);
+  } else if (value?.event === "ACCOUNT_RECONNECTED") {
+    await Business.findByIdAndUpdate(businessId, {
+      coexistenceStatus: "connected",
+      disconnectReason: null,
+    });
+    console.log(`✅ Business ${businessId} coexistence reconnected`);
+  }
 }

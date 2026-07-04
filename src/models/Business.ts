@@ -44,6 +44,15 @@ export interface IBusiness extends Document {
   metaUserId?: string;
   whatsappConnectedAt?: Date;
   whatsappDeauthorizedAt?: Date;
+  // Coexistence fields
+  isCoexistence?: boolean;
+  coexistenceStatus?: "connected" | "disconnected" | "syncing";
+  historyImported?: boolean;
+  contactsSynced?: boolean;
+  lastSyncAt?: Date;
+  disconnectReason?: string;
+  messagingLimit?: string;
+  qualityRating?: string;
   members: IBusinessMember[];
   whatsappTemplates: IWhatsAppTemplate[];
 }
@@ -95,6 +104,17 @@ const businessSchema = new Schema<IBusiness>(
     whatsappDeauthorizedAt: {
       type: Date,
     },
+    isCoexistence: { type: Boolean, default: false },
+    coexistenceStatus: {
+      type: String,
+      enum: ["connected", "disconnected", "syncing"],
+    },
+    historyImported: { type: Boolean, default: false },
+    contactsSynced: { type: Boolean, default: false },
+    lastSyncAt: { type: Date },
+    disconnectReason: { type: String },
+    messagingLimit: { type: String },
+    qualityRating: { type: String },
     members: [
       {
         userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
