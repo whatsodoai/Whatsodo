@@ -160,6 +160,31 @@ export const initiateHistorySync = async (
  * Subscribes the app to coexistence-required WABA webhook fields:
  * history, smb_app_state_sync, and smb_message_echoes.
  */
+export interface WabaPhoneNumber {
+  id: string;
+  display_phone_number?: string;
+  verified_name?: string;
+}
+
+/**
+ * Fetches all phone numbers registered under a WABA.
+ * Used in the coexistence flow where FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING
+ * only returns waba_id (no phone_number_id), so we derive it from the WABA.
+ */
+export const getWabaPhoneNumbers = async (
+  wabaId: string,
+  accessToken: string
+): Promise<WabaPhoneNumber[]> => {
+  const response = await axios.get(
+    `https://graph.facebook.com/${GRAPH_VERSION}/${wabaId}/phone_numbers`,
+    {
+      params: { fields: "id,display_phone_number,verified_name" },
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }
+  );
+  return response.data.data ?? [];
+};
+
 export const subscribeCoexistenceWebhooks = async (
   wabaId: string,
   accessToken: string

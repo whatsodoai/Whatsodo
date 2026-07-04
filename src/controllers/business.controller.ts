@@ -13,6 +13,7 @@ import {
   initiateContactsSync,
   initiateHistorySync,
   subscribeCoexistenceWebhooks,
+  getWabaPhoneNumbers,
 } from "../services/meta-embedded-signup.service";
 import { env } from "../config/env";
 import Business from "../models/Business";
@@ -171,12 +172,20 @@ export const connectWhatsAppEmbedded = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
-    const { code, wabaId, phoneNumberId, isCoexistence = false } = req.body;
+    const { code, wabaId, isCoexistence = false } = req.body;
+    let { phoneNumberId } = req.body;
 
-    if (!code || !wabaId || !phoneNumberId) {
+    if (!code || !wabaId) {
       res.status(400).json({
         success: false,
-        message: "code, wabaId and phoneNumberId are required",
+        message: "code and wabaId are required",
+      });
+      return;
+    }
+    if (!isCoexistence && !phoneNumberId) {
+      res.status(400).json({
+        success: false,
+        message: "phoneNumberId is required for standard (non-coexistence) flow",
       });
       return;
     }
@@ -192,6 +201,20 @@ export const connectWhatsAppEmbedded = async (
       subscribeAppToWaba(wabaId, accessToken).catch((err) =>
         console.error("Failed to subscribe app to WABA:", err?.response?.data || err.message)
       );
+    }
+
+    // Coexistence: FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING only sends waba_id.
+    // Derive the phone number ID by listing phone numbers on the WABA.
+    if (isCoexistence && !phoneNumberId) {
+      const numbers = await getWabaPhoneNumbers(wabaId, accessToken);
+      if (numbers.length === 0) {
+        res.status(400).json({
+          success: false,
+          message: "No phone numbers found on this WhatsApp Business Account. Please try again.",
+        });
+        return;
+      }
+      phoneNumberId = numbers[0].id;
     }
 
     const [phoneDetails, metaUserId] = await Promise.all([
