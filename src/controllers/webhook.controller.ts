@@ -304,11 +304,13 @@ async function processBusinessAppEcho(
   value: any,
   slug: string | string[] | undefined
 ): Promise<void> {
-  if (!value?.messages?.length) return;
+  // Meta delivers echoes under `message_echoes`, not `messages`
+  const echoes: any[] = value?.message_echoes ?? [];
+  if (!echoes.length) return;
 
-  const message = value.messages[0];
+  const message = echoes[0];
   // Echo messages have the business number as `from`; the recipient is `to`
-  const customerPhone: string | undefined = message.to ?? value.contacts?.[0]?.wa_id;
+  const customerPhone: string | undefined = message.to;
   const text: string =
     message.text?.body || (message.type !== "text" ? `[${message.type} message]` : "");
 
@@ -339,8 +341,12 @@ async function processBusinessAppEcho(
 }
 
 // ── Coexistence: chat history sync webhook ────────────────────────────────────
-// Meta delivers history in chunks with a progress percentage. When progress
-// reaches 100% (or no more chunks arrive), mark history as imported.
+// Meta delivers history in chunks. Two payload shapes exist:
+//   1. value.history  — chunked thread history (the normal path)
+//   2. value.messages — individual media asset payloads (sent separately for
+//      media messages sent within 14 days of onboarding)
+// When history sharing is declined, error code 2593109 appears in
+// value.history[0].errors and we simply mark the import as done.
 async function processHistoryWebhook(
   value: any,
   slug: string | string[] | undefined
@@ -357,20 +363,56 @@ async function processHistoryWebhook(
   if (!business) return;
 
   const businessId = (business._id as any).toString();
-  const progress: number = value?.progress ?? 0;
+  const bizDigits = (business.whatsappNumber ?? "").replace(/\D/g, "");
 
-  // Save each historical message chunk to the inbox
-  const messages: any[] = value?.messages ?? [];
-  for (const msg of messages) {
-    const phone: string | undefined = msg.from || msg.to;
-    const direction = msg.from === business.whatsappNumber?.replace(/\D/g, "") ? "outgoing" : "incoming";
-    const text: string = msg.text?.body || (msg.type !== "text" ? `[${msg.type}]` : "");
-    if (phone && text) {
-      await saveMessage(businessId, phone, direction, text, msg.id).catch(() => {});
+  // ── Path A: media asset payloads arrive under value.messages ─────────────
+  if (Array.isArray(value?.messages) && value.messages.length) {
+    for (const msg of value.messages) {
+      const phone: string | undefined = msg.from || msg.to;
+      if (!phone) continue;
+      const direction = msg.from?.replace(/\D/g, "") === bizDigits ? "outgoing" : "incoming";
+      const text: string = msg.text?.body || (msg.type && msg.type !== "text" ? `[${msg.type}]` : "");
+      if (text) {
+        await saveMessage(businessId, phone, direction, text, msg.id).catch(() => {});
+      }
+    }
+    return;
+  }
+
+  // ── Path B: chunked thread history arrives under value.history ────────────
+  const historyChunks: any[] = value?.history ?? [];
+  let latestProgress = 0;
+
+  for (const chunk of historyChunks) {
+    // History sharing declined — error 2593109
+    if (Array.isArray(chunk?.errors) && chunk.errors.length) {
+      console.warn(`History sharing declined for business ${businessId}:`, chunk.errors[0]?.message);
+      await Business.findByIdAndUpdate(businessId, {
+        historyImported: true,
+        coexistenceStatus: "connected",
+        lastSyncAt: new Date(),
+      });
+      return;
+    }
+
+    const chunkProgress: number = chunk?.metadata?.progress ?? 0;
+    if (chunkProgress > latestProgress) latestProgress = chunkProgress;
+
+    for (const thread of chunk?.threads ?? []) {
+      for (const msg of thread?.messages ?? []) {
+        if (msg.type === "media_placeholder") continue;
+        const phone: string | undefined = msg.from || msg.to || thread.id;
+        if (!phone) continue;
+        const direction = msg.from?.replace(/\D/g, "") === bizDigits ? "outgoing" : "incoming";
+        const text: string = msg.text?.body || (msg.type && msg.type !== "text" ? `[${msg.type}]` : "");
+        if (text) {
+          await saveMessage(businessId, phone, direction, text, msg.id).catch(() => {});
+        }
+      }
     }
   }
 
-  if (progress >= 100) {
+  if (latestProgress >= 100) {
     await Business.findByIdAndUpdate(businessId, {
       historyImported: true,
       coexistenceStatus: "connected",
@@ -431,6 +473,13 @@ async function processAccountUpdate(
       disconnectReason: reason,
     });
     console.warn(`⚠️  Business ${businessId} coexistence disconnected: ${reason}`);
+  } else if (value?.event === "ACCOUNT_OFFBOARDED") {
+    await Business.findByIdAndUpdate(businessId, {
+      coexistenceStatus: "disconnected",
+      isCoexistence: false,
+      disconnectReason: "ACCOUNT_OFFBOARDED",
+    });
+    console.warn(`⚠️  Business ${businessId} WhatsApp Business App account offboarded`);
   } else if (value?.event === "ACCOUNT_RECONNECTED") {
     await Business.findByIdAndUpdate(businessId, {
       coexistenceStatus: "connected",

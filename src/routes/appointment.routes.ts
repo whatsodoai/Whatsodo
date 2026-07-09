@@ -4,6 +4,7 @@ import {
   getAll,
   getCalendar,
   updateStatus,
+  reschedule,
 } from "../controllers/appointment.controller";
 
 import { protect } from "../middleware/auth.middleware";
@@ -15,5 +16,6 @@ router.post("/", protect, create);
 router.get("/calendar/:businessId", protect, verifyBusinessOwnership, getCalendar);
 router.get("/:businessId", protect, verifyBusinessOwnership, getAll);
 router.patch("/:id", protect, updateStatus);
+router.patch("/:id/reschedule", protect, reschedule);
 
 export default router;

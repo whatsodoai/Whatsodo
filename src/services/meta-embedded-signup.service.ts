@@ -125,7 +125,7 @@ export const initiateContactsSync = async (
   try {
     const response = await axios.post(
       `https://graph.facebook.com/${GRAPH_VERSION}/${phoneNumberId}/smb_app_data`,
-      { sync_type: "smb_app_state_sync" },
+      { messaging_product: "whatsapp", sync_type: "smb_app_state_sync" },
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
     return response.data.request_id ?? null;
@@ -146,7 +146,7 @@ export const initiateHistorySync = async (
   try {
     const response = await axios.post(
       `https://graph.facebook.com/${GRAPH_VERSION}/${phoneNumberId}/smb_app_data`,
-      { sync_type: "history" },
+      { messaging_product: "whatsapp", sync_type: "history" },
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
     return response.data.request_id ?? null;

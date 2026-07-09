@@ -3,37 +3,32 @@ import { AuthRequest } from "../middleware/auth.middleware";
 import {
   createAppointment,
   getAppointments,
+  rescheduleAppointment,
 } from "../services/appointment.service";
 import { hasBusinessAccess } from "../utils/ownership";
 import Appointment from "../models/Appointment";
-import Lead from "../models/Lead";
+import { getIO } from "../socket";
 
-export const create = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
+export const create = async (req: Request, res: Response): Promise<void> => {
   try {
     const appointment = await createAppointment(req.body);
 
-    res.status(201).json({
-      success: true,
-      data: appointment,
-    });
+    try {
+      getIO().to(`business:${req.body.businessId}`).emit("appointment:booked", {
+        date: req.body.date,
+        time: req.body.time,
+        appointment,
+      });
+    } catch { /* socket may not be ready in tests */ }
+
+    res.status(201).json({ success: true, data: appointment });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message:
-        error instanceof Error
-          ? error.message
-          : "Failed to create appointment",
-    });
+    const msg = error instanceof Error ? error.message : "Failed to create appointment";
+    res.status(msg.includes("already booked") ? 409 : 500).json({ success: false, message: msg });
   }
 };
 
-export const getCalendar = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
+export const getCalendar = async (req: Request, res: Response): Promise<void> => {
   try {
     const { businessId } = req.params;
 
@@ -68,39 +63,25 @@ export const getCalendar = async (
   }
 };
 
-export const getAll = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
+export const getAll = async (req: Request, res: Response): Promise<void> => {
   try {
     const { businessId } = req.params;
-
     const appointments = await getAppointments(businessId as string);
-
-    res.status(200).json({
-      success: true,
-      data: appointments,
-    });
+    res.status(200).json({ success: true, data: appointments });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message:
-        error instanceof Error
-          ? error.message
-          : "Failed to fetch appointments",
+      message: error instanceof Error ? error.message : "Failed to fetch appointments",
     });
   }
 };
 
-export const updateStatus = async (
-  req: AuthRequest,
-  res: Response
-): Promise<void> => {
+export const updateStatus = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
     const { status, notes } = req.body;
 
-    const existing = await Appointment.findById(id);
+    const existing = await Appointment.findById(id as string);
     if (!existing) {
       res.status(404).json({ success: false, message: "Appointment not found" });
       return;
@@ -122,5 +103,43 @@ export const updateStatus = async (
       success: false,
       message: error instanceof Error ? error.message : "Failed to update appointment",
     });
+  }
+};
+
+export const reschedule = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { date, time } = req.body;
+
+    if (!date || !time) {
+      res.status(400).json({ success: false, message: "date and time are required" });
+      return;
+    }
+
+    const existing = await Appointment.findById(id as string);
+    if (!existing) {
+      res.status(404).json({ success: false, message: "Appointment not found" });
+      return;
+    }
+    if (!(await hasBusinessAccess(req.user!.userId, existing.businessId.toString()))) {
+      res.status(403).json({ success: false, message: "Not authorized for this business" });
+      return;
+    }
+
+    const appointment = await rescheduleAppointment(id as string, date, time);
+
+    try {
+      getIO().to(`business:${existing.businessId.toString()}`).emit("appointment:rescheduled", {
+        id,
+        date,
+        time,
+        appointment,
+      });
+    } catch { /* socket may not be ready */ }
+
+    res.json({ success: true, data: appointment });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : "Failed to reschedule appointment";
+    res.status(msg.includes("already taken") ? 409 : 500).json({ success: false, message: msg });
   }
 };
