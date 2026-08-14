@@ -1,1 +1,0 @@
-# Whatsodo initgit add README.mdgit commit -m first commitgit branch -M maingit remote add origin https://github.com/Ragavendar999/Whatsodo.gitgit push -u origin main

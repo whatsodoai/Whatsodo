@@ -1,9 +1,0 @@
-import { Router } from "express";
-import { getInbox } from "../controllers/inbox.controller";
-import { protect } from "../middleware/auth.middleware";
-
-const router = Router();
-
-router.get("/:businessId", protect, getInbox);
-
-export default router;

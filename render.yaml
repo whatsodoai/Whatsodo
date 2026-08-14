@@ -1,9 +1,32 @@
 services:
   - type: web
     name: whatsodo-api
-    env: node
-    buildCommand: npm install && npm run build
-    startCommand: npm start
+    env: python
+    plan: starter
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /api/v1/health
     envVars:
-      - key: NODE_ENV
+      - key: ENVIRONMENT
         value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: whatsodo-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: whatsodo-redis
+          property: connectionString
+      # Set manually in the Render dashboard (secrets, not committed here):
+      # JWT_SECRET_KEY, CORS_ALLOWED_ORIGINS, COOKIE_DOMAIN, EMAIL_SENDER_PROVIDER, EMAIL_FROM_ADDRESS
+
+  - type: redis
+    name: whatsodo-redis
+    plan: starter
+    ipAllowList: []
+
+databases:
+  - name: whatsodo-db
+    plan: starter
+    postgresMajorVersion: "16"
