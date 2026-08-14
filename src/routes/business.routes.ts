@@ -7,6 +7,7 @@ import {
   getWhatsAppDefaults,
   connectWhatsAppEmbedded,
   getConnectionHealth,
+  checkTokenHealth,
   triggerContactsSync,
   triggerHistorySync,
   addMember,
@@ -26,6 +27,7 @@ router.get("/:id", protect, getOne);
 router.patch("/:id", protect, update);
 router.post("/:id/whatsapp/connect", protect, connectWhatsAppEmbedded);
 router.get("/:id/whatsapp/health", protect, getConnectionHealth);
+router.get("/:id/whatsapp/token-health", protect, checkTokenHealth);
 router.post("/:id/whatsapp/sync-contacts", protect, triggerContactsSync);
 router.post("/:id/whatsapp/sync-history", protect, triggerHistorySync);
 router.post("/:id/members", protect, addMember);

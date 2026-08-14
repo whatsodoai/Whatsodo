@@ -409,6 +409,51 @@ export const triggerHistorySync = async (
   }
 };
 
+/**
+ * Validates the stored WhatsApp access token against Meta's Graph API.
+ * Returns { valid: true } when the token is healthy, or { valid: false, reason }
+ * when it's expired / revoked so the UI can show a warning.
+ */
+export const checkTokenHealth = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    if (!(await hasBusinessAccess(req.user!.userId, id as string))) {
+      res.status(403).json({ success: false, message: "Not authorized" });
+      return;
+    }
+
+    const business = await Business.findById(id).lean();
+    if (!business) {
+      res.status(404).json({ success: false, message: "Business not found" });
+      return;
+    }
+
+    if (!business.whatsappAccessToken) {
+      res.json({ success: true, data: { valid: false, reason: "no_token" } });
+      return;
+    }
+
+    try {
+      const response = await axios.get("https://graph.facebook.com/v25.0/me", {
+        headers: { Authorization: `Bearer ${business.whatsappAccessToken}` },
+        params: { fields: "id" },
+      });
+      res.json({ success: true, data: { valid: true, userId: response.data.id } });
+    } catch (err: any) {
+      const errorCode = err?.response?.data?.error?.code;
+      const reason = errorCode === 190 ? "expired" : "invalid";
+      const message = err?.response?.data?.error?.message || "Token validation failed";
+      res.json({ success: true, data: { valid: false, reason, message } });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Failed to check token health" });
+  }
+};
+
 export const getOne = async (
   req: AuthRequest,
   res: Response

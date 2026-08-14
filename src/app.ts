@@ -24,7 +24,15 @@ import voiceRoutes from "./routes/voice.routes";
 const app = express();
 
 app.use(cors());
-app.use(express.json());
+// Capture raw body as Buffer before JSON parsing — needed for HMAC-SHA256
+// webhook signature verification against x-hub-signature-256.
+app.use(
+  express.json({
+    verify: (req: any, _res, buf) => {
+      req.rawBody = buf;
+    },
+  })
+);
 app.use(express.urlencoded({ extended: true })); // Meta posts deauthorize/data-deletion callbacks as form-encoded `signed_request`
 app.use("/api/meta", metaComplianceRoutes);
 app.use("/api/auth", authRoutes);

@@ -1,8 +1,10 @@
 import { Request, Response } from "express";
+import bcrypt from "bcryptjs";
 import { registerUser, loginUser } from "../services/auth.service";
 import { generateToken } from "../utils/jwt";
 import { AuthRequest } from "../middleware/auth.middleware";
 import Business from "../models/Business";
+import User from "../models/User";
 
 export const register = async (
   req: Request,
@@ -90,6 +92,46 @@ export const getProfile = async (
     res.status(500).json({
       success: false,
       message: "Failed to fetch profile",
+    });
+  }
+};
+
+export const updateProfile = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { name, password } = req.body;
+    const update: Record<string, string> = {};
+
+    if (name?.trim()) update.name = name.trim();
+    if (password) {
+      if (password.length < 6) {
+        res.status(400).json({ success: false, message: "Password must be at least 6 characters" });
+        return;
+      }
+      update.password = await bcrypt.hash(password, 10);
+    }
+
+    if (!Object.keys(update).length) {
+      res.status(400).json({ success: false, message: "Nothing to update" });
+      return;
+    }
+
+    const user = await User.findByIdAndUpdate(req.user!.userId, update, { new: true }).lean();
+    if (!user) {
+      res.status(404).json({ success: false, message: "User not found" });
+      return;
+    }
+
+    res.json({
+      success: true,
+      data: { id: user._id, name: user.name, email: user.email, role: user.role },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error instanceof Error ? error.message : "Failed to update profile",
     });
   }
 };

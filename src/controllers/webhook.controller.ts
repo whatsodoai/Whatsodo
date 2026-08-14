@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import crypto from "crypto";
 import { sendWhatsAppMessage } from "../services/whatsapp.service";
 import { buildKnowledgeBaseReply, buildAISystemPrompt } from "../services/knowledge-base.service";
 import { generateReply, scoreLeadIntent, ChatTurn } from "../services/ai.service";
@@ -13,9 +14,34 @@ import { saveMessage, isDuplicateWamid, getConversation } from "../services/mess
 import Business from "../models/Business";
 import AiEmployee from "../models/AiEmployee";
 import Lead from "../models/Lead";
+import WebhookEvent from "../models/WebhookEvent";
 import { getIO } from "../socket";
+import { AuthRequest } from "../middleware/auth.middleware";
+import { hasBusinessAccess } from "../utils/ownership";
 
 const leadService = new LeadService();
+
+// ── HMAC-SHA256 signature verification ────────────────────────────────────────
+// Meta signs every webhook POST with the app secret. Comparing with
+// timingSafeEqual prevents timing-based side-channel attacks.
+function verifyMetaSignature(rawBody: Buffer, signatureHeader: string): boolean {
+  const appSecret = process.env.META_APP_SECRET;
+  if (!appSecret) return true; // skip in dev if secret not set
+
+  const expected = `sha256=${crypto
+    .createHmac("sha256", appSecret)
+    .update(rawBody)
+    .digest("hex")}`;
+
+  try {
+    return (
+      expected.length === signatureHeader.length &&
+      crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signatureHeader))
+    );
+  } catch {
+    return false;
+  }
+}
 
 const appointmentKeywords = [
   "call", "consultation", "meeting", "appointment",
@@ -56,6 +82,17 @@ export const verifyWebhook = async (req: Request, res: Response): Promise<void> 
 
 export const receiveWebhook = async (req: Request, res: Response): Promise<void> => {
   try {
+    // Verify Meta's HMAC-SHA256 signature before doing anything else
+    const signature = req.headers["x-hub-signature-256"] as string | undefined;
+    const rawBody: Buffer | undefined = (req as any).rawBody;
+    if (signature && rawBody) {
+      if (!verifyMetaSignature(rawBody, signature)) {
+        console.warn("[Webhook] Invalid signature — request rejected");
+        res.sendStatus(403);
+        return;
+      }
+    }
+
     const entry = req.body?.entry?.[0];
     const change = entry?.changes?.[0];
     const field: string = change?.field ?? "messages";
@@ -68,6 +105,12 @@ export const receiveWebhook = async (req: Request, res: Response): Promise<void>
 
     // Ack Meta immediately — processing is async
     res.sendStatus(200);
+
+    // Log every event for the webhook debugger (TTL 24h, fire-and-forget)
+    WebhookEvent.create({
+      field,
+      payload: req.body,
+    }).catch(() => {});
 
     const slug = req.params.businessSlug;
 
@@ -488,3 +531,32 @@ async function processAccountUpdate(
     console.log(`✅ Business ${businessId} coexistence reconnected`);
   }
 }
+
+// ── Webhook event log — for the live debugger in Settings ────────────────────
+export const getWebhookEvents = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { businessId } = req.query;
+    const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
+
+    if (!businessId || typeof businessId !== "string") {
+      res.status(400).json({ success: false, message: "businessId is required" });
+      return;
+    }
+    if (!(await hasBusinessAccess(req.user!.userId, businessId))) {
+      res.status(403).json({ success: false, message: "Not authorized" });
+      return;
+    }
+
+    const events = await WebhookEvent.find()
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+
+    res.json({ success: true, data: events });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Failed to fetch webhook events" });
+  }
+};
